@@ -1,0 +1,93 @@
+{
+  "nodes": {
+    "essential-node": {
+      "inputs": {
+        "essential-server": "essential-server",
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "systems": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1725334912,
+        "narHash": "sha256-+JucDO//5bYikW3RHY+WJaGJw9g0u+VsZIid65lDdlY=",
+        "ref": "refs/heads/main",
+        "rev": "eea3cacdac86232011be1359c0cabbc6a767185c",
+        "revCount": 25,
+        "type": "git",
+        "url": "ssh://git@github.com/essential-contributions/essential-node"
+      },
+      "original": {
+        "type": "git",
+        "url": "ssh://git@github.com/essential-contributions/essential-node"
+      }
+    },
+    "essential-server": {
+      "inputs": {
+        "nixpkgs": [
+          "essential-node",
+          "nixpkgs"
+        ],
+        "systems": [
+          "essential-node",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1724386028,
+        "narHash": "sha256-ziImdwfvIVhHyVMA14BgbwwaoFVJww+zKOS93SJoUPo=",
+        "owner": "essential-contributions",
+        "repo": "essential-server",
+        "rev": "0a21818d2722ce7475a1627bf543822652e604ed",
+        "type": "github"
+      },
+      "original": {
+        "owner": "essential-contributions",
+        "repo": "essential-server",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1725103162,
+        "narHash": "sha256-Ym04C5+qovuQDYL/rKWSR+WESseQBbNAe5DsXNx5trY=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "12228ff1752d7b7624a54e9c1af4b222b3c1073b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "essential-node": "essential-node",
+        "nixpkgs": "nixpkgs",
+        "systems": "systems"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
