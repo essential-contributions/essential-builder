@@ -11,6 +11,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Temporarily test access to upstream repos while they're private.
+  repo-ssh-access:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repo: essential-node
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+              ${{ secrets.SSH_KEY_NODE }}
+      - run: |
+          git ls-remote ssh://git@github.com/essential-contributions/${{ matrix.repo }}.git HEAD
+
   nix:
     permissions:
       id-token: "write" # added for magic-nix-cache-action
