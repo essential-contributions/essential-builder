@@ -67,6 +67,8 @@ jobs:
     permissions:
       id-token: "write" # added for magic-nix-cache-action
       contents: "read"  # added for magic-nix-cache-action
+    env:
+        CARGO_NET_GIT_FETCH_WITH_CLI: 'true' # cargo ssh-agent access
     strategy:
       fail-fast: false
       matrix:
