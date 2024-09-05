@@ -1,0 +1,100 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Temporarily test access to upstream repos while they're private.
+  repo-ssh-access:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repo: essential-node
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+              ${{ secrets.SSH_KEY_NODE }}
+      - run: |
+          git ls-remote ssh://git@github.com/essential-contributions/${{ matrix.repo }}.git HEAD
+
+  nix:
+    permissions:
+      id-token: "write" # added for magic-nix-cache-action
+      contents: "read"  # added for magic-nix-cache-action
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        command: [
+            "flake check --print-build-logs --no-update-lock-file",
+            "build --print-build-logs --no-update-lock-file .#essential-builder",
+          ]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+              ${{ secrets.SSH_KEY_NODE }}
+      - uses: DeterminateSystems/nix-installer-action@v10
+      - uses: DeterminateSystems/magic-nix-cache-action@v4
+      - run: nix ${{ matrix.command }}
+
+  nix-fmt-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+              ${{ secrets.SSH_KEY_NODE }}
+      - uses: DeterminateSystems/nix-installer-action@v10
+      - uses: DeterminateSystems/magic-nix-cache-action@v4
+      - run: nix fmt -- --check ./
+
+  cargo:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: "write" # added for magic-nix-cache-action
+      contents: "read"  # added for magic-nix-cache-action
+    env:
+        CARGO_NET_GIT_FETCH_WITH_CLI: 'true' # cargo ssh-agent access
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - command: check --locked --all
+          - command: clippy --tests --locked --all -- -D warnings
+          - command: fmt --all -- --check
+          - command: test --locked --all
+          - command: test --no-default-features --locked --all
+          - command: test --all-features --locked --all -- --nocapture
+    steps:
+      - uses: actions/checkout@v3
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+              ${{ secrets.SSH_KEY_NODE }}
+      - uses: DeterminateSystems/nix-installer-action@v10
+      - uses: DeterminateSystems/magic-nix-cache-action@v4
+      - env:
+          TMPDIR: ${{ runner.temp }}
+        run: nix develop --command cargo ${{ matrix.command }}
+
+  cargo-toml-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: DeterminateSystems/nix-installer-action@v10
+      - uses: DeterminateSystems/magic-nix-cache-action@v4
+      - run: nix shell nixpkgs#cargo-toml-lint nixpkgs#findutils --command git ls-files | grep Cargo.toml$ | xargs --verbose -n 1 $(which cargo-toml-lint)
