@@ -54,7 +54,8 @@ pub mod table {
     }
 
     pub const SOLUTION: Table = Table::new("solution", create::SOLUTION);
+    pub const SUBMISSION: Table = Table::new("submission", create::SUBMISSION);
 
     /// All tables in a list. Useful for initialisation and testing.
-    pub const ALL: &[Table] = &[SOLUTION];
+    pub const ALL: &[Table] = &[SOLUTION, SUBMISSION];
 }

@@ -79,7 +79,7 @@ pub fn get_solution(
     conn: &Connection,
     ca: &ContentAddress,
 ) -> Result<Option<Solution>, QueryError> {
-    let ca_blob = encode(ca);
+    let ca_blob = &ca.0;
     let mut stmt = conn.prepare(sql::query::GET_SOLUTION)?;
     let solution_blob: Option<Vec<u8>> = stmt
         .query_row([ca_blob], |row| row.get("solution"))
@@ -93,8 +93,8 @@ pub fn get_solution(
 pub fn list_submissions(
     conn: &Connection,
     time_range: Range<Duration>,
-    limit: usize,
-) -> rusqlite::Result<Vec<(Duration, ContentAddress)>> {
+    limit: i64,
+) -> rusqlite::Result<Vec<(ContentAddress, Duration)>> {
     let mut stmt = conn.prepare(sql::query::LIST_SUBMISSIONS)?;
     let start_secs = time_range.start.as_secs();
     let start_nanos = time_range.start.subsec_nanos();
@@ -109,11 +109,11 @@ pub fn list_submissions(
             ":limit": limit,
         },
         |row| {
-            let secs: u64 = row.get("secs")?;
-            let nanos: u32 = row.get("nanos")?;
+            let solution_addr_blob: Hash = row.get("content_addr")?;
+            let secs: u64 = row.get("timestamp_secs")?;
+            let nanos: u32 = row.get("timestamp_nanos")?;
             let timestamp = Duration::new(secs, nanos);
-            let solution_addr_blob: Hash = row.get("solution_addr")?;
-            Ok((timestamp, ContentAddress(solution_addr_blob)))
+            Ok((ContentAddress(solution_addr_blob), timestamp))
         },
     )?;
     rows.collect()
