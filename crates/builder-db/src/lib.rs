@@ -40,8 +40,8 @@ pub fn create_tables(tx: &Transaction) -> rusqlite::Result<()> {
 
 /// Insert a submitted solution and the time it was received into the table.
 ///
-/// This inserts the solution into the solution table if it doesn't already
-/// exist, and inserts an associated timestamp into the submission table.
+/// This first inserts the solution and its CA into the solution table if it doesn't
+/// already exist, then inserts associated timestamp into the submission table.
 pub fn insert_solution_submission(
     tx: &Transaction,
     solution: &Solution,
@@ -161,7 +161,9 @@ pub fn list_submissions(
     rows.collect()
 }
 
-/// Delete the solution (and any associated submissions) from the database.
+/// Delete the solution with the given CA from the database if it exists.
+///
+/// This also deletes all submissions associated with the specified solution.
 pub fn delete_solution(conn: &Connection, ca: &ContentAddress) -> rusqlite::Result<()> {
     let ca_blob = &ca.0;
     conn.execute(
