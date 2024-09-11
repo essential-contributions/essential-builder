@@ -23,6 +23,11 @@ pub mod create {
     decl_const_sql_str!(SUBMISSION, "create/submission.sql");
 }
 
+/// Statements for deleting rows from tables.
+pub mod delete {
+    decl_const_sql_str!(SOLUTION, "delete/solution.sql");
+}
+
 /// Statements for inserting rows into the tables.
 pub mod insert {
     decl_const_sql_str!(SOLUTION, "insert/solution.sql");

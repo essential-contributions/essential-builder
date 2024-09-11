@@ -160,3 +160,15 @@ pub fn list_submissions(
     )?;
     rows.collect()
 }
+
+/// Delete the solution (and any associated submissions) from the database.
+pub fn delete_solution(conn: &Connection, ca: &ContentAddress) -> rusqlite::Result<()> {
+    let ca_blob = &ca.0;
+    conn.execute(
+        sql::delete::SOLUTION,
+        named_params! {
+            ":content_addr": ca_blob,
+        },
+    )?;
+    Ok(())
+}

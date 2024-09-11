@@ -144,4 +144,20 @@ fn list_submissions() {
     let limit = 3;
     let submissions = builder_db::list_submissions(&conn, range_all, limit).unwrap();
     assert_eq!(submissions.len(), limit as usize);
+
+    // Delete all solutions, then check that our query is empty.
+    let tx = conn.transaction().unwrap();
+    for (solution, _) in &solutions {
+        let ca = essential_hash::content_addr(solution);
+        builder_db::delete_solution(&tx, &ca).unwrap();
+    }
+    tx.commit().unwrap();
+
+    // Query all submissions.
+    let min = Duration::ZERO;
+    let max = Duration::from_secs(i64::MAX as u64);
+    let range_all = min..max;
+    let limit = i64::MAX;
+    let submissions = builder_db::list_submissions(&conn, range_all.clone(), limit).unwrap();
+    assert!(submissions.is_empty());
 }
