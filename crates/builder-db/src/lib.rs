@@ -1,4 +1,18 @@
 //! The database API for the block builder's solution pool and related storage.
+//!
+//! The `essential-builder-db` crate provides a simple database API for managing the block
+//! builder's solution pool and related storage, using SQLite as the underlying database. It allows
+//! you to store, query, and delete solutions, as well as manage solution submissions with
+//! timestamps.
+//!
+//! ## Overview
+//!
+//! - [`create_tables`]: Creates all required tables in the database.
+//! - [`insert_solution_submission`]: Inserts a solution and its associated submission timestamp.
+//! - [`get_solution`]: Retrieves a solution by its content address.
+//! - [`list_solutions`]: Lists all solutions that were submitted within a given time range.
+//! - [`list_submissions`]: Lists submissions based on timestamp.
+//! - [`delete_solution`]: Deletes a solution and its submissions given the solution's content address.
 
 use error::{DecodeError, QueryError};
 use essential_hash::content_addr;
