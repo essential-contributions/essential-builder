@@ -32,6 +32,7 @@ pub mod insert {
 /// Statements for making queries.
 pub mod query {
     decl_const_sql_str!(GET_SOLUTION, "query/get_solution.sql");
+    decl_const_sql_str!(LIST_SOLUTIONS, "query/list_solutions.sql");
     decl_const_sql_str!(LIST_SUBMISSIONS, "query/list_submissions.sql");
 }
 

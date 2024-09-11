@@ -87,6 +87,48 @@ pub fn get_solution(
     Ok(solution_blob.as_deref().map(decode).transpose()?)
 }
 
+/// List all solutions that were submitted within the given time range.
+///
+/// The number of results will be limited to the given `limit`.
+///
+/// Note that if the same solution was submitted multiple times within the given time range, they
+/// will appear multiple times in the result.
+pub fn list_solutions(
+    conn: &Connection,
+    time_range: Range<Duration>,
+    limit: i64,
+) -> Result<Vec<(ContentAddress, Solution, Duration)>, QueryError> {
+    let mut stmt = conn.prepare(sql::query::LIST_SOLUTIONS)?;
+    let start_secs = time_range.start.as_secs();
+    let start_nanos = time_range.start.subsec_nanos();
+    let end_secs = time_range.end.as_secs();
+    let end_nanos = time_range.end.subsec_nanos();
+    let rows = stmt.query_map(
+        named_params! {
+            ":start_secs": start_secs,
+            ":start_nanos": start_nanos,
+            ":end_secs": end_secs,
+            ":end_nanos": end_nanos,
+            ":limit": limit,
+        },
+        |row| {
+            let solution_addr_blob: Hash = row.get("content_addr")?;
+            let solution_blob: Vec<u8> = row.get("solution")?;
+            let secs: u64 = row.get("timestamp_secs")?;
+            let nanos: u32 = row.get("timestamp_nanos")?;
+            let timestamp = Duration::new(secs, nanos);
+            Ok((ContentAddress(solution_addr_blob), solution_blob, timestamp))
+        },
+    )?;
+    rows.into_iter()
+        .map(|res| {
+            let (ca, blob, ts) = res?;
+            let solution = decode(&blob)?;
+            Ok((ca, solution, ts))
+        })
+        .collect()
+}
+
 /// List all submissions that were made within the given time range.
 ///
 /// The number of results will be limited to the given `limit`.
