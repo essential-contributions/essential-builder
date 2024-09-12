@@ -284,6 +284,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "essential-builder-db"
+version = "0.1.0"
+dependencies = [
+ "essential-hash",
+ "essential-types",
+ "postcard",
+ "rusqlite",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "essential-hash"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
