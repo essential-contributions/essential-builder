@@ -273,7 +273,14 @@ dependencies = [
 name = "essential-builder"
 version = "0.1.0"
 dependencies = [
+ "essential-builder-db",
  "essential-node",
+ "essential-types",
+ "num_cpus",
+ "rusqlite",
+ "rusqlite-pool",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]

@@ -8,4 +8,11 @@ homepage.workspace = true
 repository.workspace = true
 
 [dependencies]
+essential-builder-db = { workspace = true }
 essential-node = { workspace = true }
+essential-types = { workspace = true }
+num_cpus = { workspace = true }
+rusqlite = { workspace = true }
+rusqlite-pool = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
