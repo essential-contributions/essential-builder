@@ -1,37 +1,43 @@
 //! An implementation of the node state transaction required during block building.
 //!
 //! Using a `rusqlite::Transaction<'conn>` would require purely sync DB interaction throughout
-//! block building, as it is bound by the lifetime of its connection. Instead, we create a
-//! thread-safe, in-memory transaction around a `ConnectionPool`.
+//! block building, as it is bound by the lifetime of its connection.
+//!
+//! To avoid this restriction, we create a dedicated, thread-safe, in-memory transaction around a
+//! [`node::db::ConnectionPool`]. This allows for progressively building a state transaction for
+//! the block, while still enabling asynchronous queries for predicate and state via the connection
+//! pool.
 
 use essential_check::state_read_vm::StateRead;
 use essential_node as node;
 use essential_node_db as node_db;
-use essential_types::{ContentAddress, Key, Value, Word};
+use essential_types::{
+    predicate::Predicate, solution::SolutionData, ContentAddress, Key, Value, Word,
+};
 use futures::FutureExt;
 use std::{future::Future, pin::Pin};
 use thiserror::Error;
 
-/// Similar to [`StateRead`], but for asynchronusly querying a single key.
-pub(crate) trait QueryState {
-    type Error: core::fmt::Debug + core::fmt::Display;
-    type Future: Future<Output = Result<Option<Value>, Self::Error>>;
-    fn query_state(&self, contract_ca: ContentAddress, key: Key) -> Self::Future;
-}
-
-/// A node state transaction around a connection pool, required during block building.
+/// A simple node DB transaction around a connection pool.
 ///
-/// Cloning the transaction is equivalent to creating a new nested transaction.
+/// This transaction is specifically designed for the block building process.
+///
+/// Cloning the transaction is equivalent to taking a "snapshot" of the transaction.
+///
+/// The transaction is not committed on drop. [`Transaction::commit`] must be called to
+/// commit the transaction to to the DB via the connection pool.
 #[derive(Clone)]
-pub(crate) struct Transaction<T> {
-    inner: T,
+pub struct Transaction {
+    conn_pool: node::db::ConnectionPool,
     mutations: imbl::HashMap<(ContentAddress, Key), Value>,
 }
 
+/// Any errors that might occur in the [`StateRead`] implementation.
 #[derive(Debug, Error)]
-pub(crate) enum QueryStateRangeError<E> {
+pub enum StateReadError {
+    /// A state query to the underlying DB connection pool failed.
     #[error("a state query failed: {0}")]
-    QueryState(E),
+    Query(#[from] node::db::AcquireThenQueryError),
     /// No entry exists for the given key.
     #[error("No entry exists for the given key {0:?}")]
     NoEntry(Key),
@@ -40,84 +46,97 @@ pub(crate) enum QueryStateRangeError<E> {
     OutOfRange { key: Key, num_values: usize },
 }
 
-impl<T> Transaction<T> {
+impl Transaction {
+    /// Construct a transaction around the given node DB connection pool.
+    pub fn new(conn_pool: node::db::ConnectionPool) -> Self {
+        let mutations = Default::default();
+        Self { conn_pool, mutations }
+    }
 
+    /// Consume the transaction, commit the accumulated mutations
+    /// to the inner connection pool and return it.
+    pub async fn commit(
+        self,
+    ) -> Result<node::db::ConnectionPool, node::db::AcquireThenRusqliteError> {
+        let Self {
+            conn_pool,
+            mutations,
+        } = self;
+        conn_pool
+            .acquire_then(|conn| {
+                crate::db::with_tx(conn, move |tx| {
+                    for ((contract_ca, key), value) in mutations {
+                        node_db::update_state(tx, &contract_ca, &key, &value)?;
+                    }
+                    Ok(())
+                })
+            })
+            .await?;
+        Ok(conn_pool)
+    }
+
+    /// Get the predicate at the given content address.
+    pub(crate) async fn get_predicate(
+        self,
+        predicate_ca: ContentAddress,
+    ) -> Result<Option<Predicate>, node::db::AcquireThenQueryError> {
+        // FIXME:
+        // Update this to use `self.query_state` once contract registry is working.
+        // This is because the required predicate may be provided by a prior solution
+        // in this block.
+        self.conn_pool.get_predicate(predicate_ca).await
+    }
+
+    /// Apply the mutations described by the given solution data.
+    pub(crate) fn apply_mutations(&mut self, solution_data: &[SolutionData]) {
+        for data in solution_data {
+            let contract = &data.predicate_to_solve.contract;
+            for mutation in &data.state_mutations {
+                let entry_key = (contract.clone(), mutation.key.clone());
+                self.mutations.insert(entry_key, mutation.value.clone());
+            }
+        }
+    }
+
+    /// Query a single key for its state value if it exists.
+    async fn query_state(
+        &self,
+        contract_ca: ContentAddress,
+        key: Key,
+    ) -> Result<Option<Value>, node::db::AcquireThenQueryError> {
+        match self.mutations.get(&(contract_ca.clone(), key.clone())) {
+            Some(value) => Ok(Some(value.clone())),
+            None => self.conn_pool.query_state(contract_ca, key).await,
+        }
+    }
+
+    /// Query a contiguous range of keys and return the resulting state.
+    async fn query_state_range(
+        &self,
+        contract_ca: ContentAddress,
+        mut key: Key,
+        mut num_values: usize,
+    ) -> Result<Vec<Value>, StateReadError> {
+        let mut values = vec![];
+        while num_values > 0 {
+            match self.query_state(contract_ca.clone(), key.clone()).await? {
+                None => return Err(StateReadError::NoEntry(key)),
+                Some(value) => values.push(value),
+            }
+            key = next_key(key).map_err(|key| StateReadError::OutOfRange { key, num_values })?;
+            num_values -= 1;
+        }
+        Ok(values)
+    }
 }
 
-impl<T> StateRead for Transaction<T>
-where
-    T: Clone + QueryState + Send + Sync + 'static,
-    T::Future: Send,
-{
-    type Error = QueryStateRangeError<T::Error>;
+impl StateRead for Transaction {
+    type Error = StateReadError;
     type Future = Pin<Box<dyn Future<Output = Result<Vec<Value>, Self::Error>> + Send>>;
     fn key_range(&self, contract: ContentAddress, key: Key, num_values: usize) -> Self::Future {
         let tx = self.clone();
-        async move { query_state_range(&tx, contract, key, num_values).await }.boxed()
+        async move { tx.query_state_range(contract, key, num_values).await }.boxed()
     }
-}
-
-impl<T> QueryState for Transaction<T>
-where
-    T: Clone + QueryState + Send + Sync + 'static,
-    T::Future: Send,
-{
-    type Error = T::Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Option<Value>, Self::Error>> + Send>>;
-    fn query_state(&self, contract: ContentAddress, key: Key) -> Self::Future {
-        let tx = self.clone();
-        async move { tx_query_state(&tx, contract, key).await }.boxed()
-    }
-}
-
-impl QueryState for node::db::ConnectionPool {
-    type Error = node::db::AcquireThenQueryError;
-    type Future = Pin<Box<dyn Future<Output = Result<Option<Value>, Self::Error>> + Send>>;
-    fn query_state(&self, contract: ContentAddress, key: Key) -> Self::Future {
-        let pool = self.clone();
-        async move { pool.query_state(contract, key).await }.boxed()
-    }
-}
-
-/// Query a key using the given transaction.
-async fn tx_query_state<T>(
-    tx: &Transaction<T>,
-    contract: ContentAddress,
-    key: Key,
-) -> Result<Option<Value>, T::Error>
-where
-    T: QueryState,
-{
-    match tx.mutations.get(&(contract.clone(), key.clone())) {
-        Some(value) => Ok(Some(value.clone())),
-        None => tx.inner.query_state(contract, key).await,
-    }
-}
-
-/// Asynchronously read the given range of keys.
-async fn query_state_range<T>(
-    query_state: &T,
-    contract_ca: ContentAddress,
-    mut key: Key,
-    mut num_values: usize,
-) -> Result<Vec<Value>, QueryStateRangeError<T::Error>>
-where
-    T: QueryState,
-{
-    let mut values = vec![];
-    while num_values > 0 {
-        let res = query_state
-            .query_state(contract_ca.clone(), key.clone())
-            .await;
-        let opt = res.map_err(QueryStateRangeError::QueryState)?;
-        match opt {
-            None => return Err(QueryStateRangeError::NoEntry(key)),
-            Some(value) => values.push(value),
-        }
-        key = next_key(key).map_err(|key| QueryStateRangeError::OutOfRange { key, num_values })?;
-        num_values -= 1;
-    }
-    Ok(values)
 }
 
 /// Calculate the next key.
