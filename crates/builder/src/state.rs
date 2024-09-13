@@ -53,26 +53,33 @@ impl Transaction {
         Self { conn_pool, mutations }
     }
 
-    /// Consume the transaction, commit the accumulated mutations
-    /// to the inner connection pool and return it.
-    pub async fn commit(
+    /// Consume the transaction, commit the accumulated mutations to the inner connection pool,
+    /// providing access to the connection transaction used in case anything else needs to be
+    /// committed at the same time.
+    pub async fn commit<F, O>(
         self,
-    ) -> Result<node::db::ConnectionPool, node::db::AcquireThenRusqliteError> {
+        f: F,
+    ) -> Result<(O, node::db::ConnectionPool), node::db::AcquireThenRusqliteError>
+    where
+        F: 'static + Send + FnOnce(&mut rusqlite::Transaction) -> rusqlite::Result<O>,
+        O: 'static + Send,
+    {
         let Self {
             conn_pool,
             mutations,
         } = self;
-        conn_pool
+        let output = conn_pool
             .acquire_then(|conn| {
                 crate::db::with_tx(conn, move |tx| {
                     for ((contract_ca, key), value) in mutations {
                         node_db::update_state(tx, &contract_ca, &key, &value)?;
                     }
-                    Ok(())
+                    let output = f(tx)?;
+                    Ok(output)
                 })
             })
             .await?;
-        Ok(conn_pool)
+        Ok((output, conn_pool))
     }
 
     /// Get the predicate at the given content address.
