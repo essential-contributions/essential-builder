@@ -383,6 +383,7 @@ version = "0.1.0"
 dependencies = [
  "essential-builder-db",
  "essential-check",
+ "essential-hash",
  "essential-node",
  "essential-node-db",
  "essential-types",

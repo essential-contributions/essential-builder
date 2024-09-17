@@ -1,43 +1,88 @@
 //! A block builder implementation for the Essential protocol.
 
+use essential_builder_db::{self as builder_db, SolutionFailure};
 use essential_check::{
     self as check,
     solution::{CheckPredicateConfig, PredicatesError, Utility},
     state_read_vm::Gas,
 };
 use essential_node as node;
+use essential_node_db as node_db;
 use essential_types::{
     predicate::Predicate,
     solution::{Solution, SolutionData},
-    ContentAddress, PredicateAddress,
+    Block, ContentAddress, PredicateAddress,
 };
 use state::StateReadError;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, ops::Range, sync::Arc, time::Duration};
 use thiserror::Error;
 
 pub mod db;
 mod state;
+
+/// Block building configuration.
+pub struct Config {
+    /// The maximum number of solution failures to keep in the DB, used to provide feedback to the
+    /// submitters.
+    pub solution_failures_to_keep: u32,
+    /// Configuration required by [`check::solution::check_predicates`].
+    ///
+    /// Wrapped in an `Arc` as this is shared between tasks.
+    pub check: Arc<CheckPredicateConfig>,
+}
 
 /// A summary of building a block, returned by [`build_block_fifo`].
 pub struct SolutionsSummary {
     /// The addresses of all successful solutions.
     pub succeeded: Vec<(ContentAddress, Utility, Gas)>,
     /// The addresses of all failed solutions.
-    pub failed: Vec<(ContentAddress, InvalidSolution)>,
+    pub failed: Vec<(ContentAddress, SolutionIndex, InvalidSolution)>,
 }
+
+/// The index of a solution within a block.
+pub type SolutionIndex = u32;
 
 /// Any errors that might occur within [`build_block_fifo`].
 #[derive(Debug, Error)]
 pub enum BuildBlockError {
+    /// A builder DB query error occurred.
+    #[error("A builder DB query error occurred: {0}")]
+    BuilderQuery(#[from] db::AcquireThenQueryError),
     /// A builder DB rusqlite error occurred.
     #[error("A builder DB rusqlite error occurred: {0}")]
-    BuilderQuery(#[from] db::AcquireThenQueryError),
+    BuilderRusqlite(#[from] db::AcquireThenRusqliteError),
     /// A node DB rusqlite error occurred.
     #[error("A node DB rusqlite error occurred: {0}")]
     NodeRusqlite(#[from] node::db::AcquireThenRusqliteError),
     /// Failed to check and apply a sequence of solutions.
     #[error("Failed to check and apply solutions: {0}")]
     ApplySolutions(#[from] ApplySolutionsError),
+    /// System time produced a non-monotonic timestamp.
+    #[error("System time produced non-monotonic timestamp")]
+    UnixTimeNotMonotonic,
+    /// Failed to retrieve the last block header.
+    #[error("Failed to retrieve the last block header")]
+    LastBlockHeader(#[from] node::db::AcquireThenError<LastBlockHeaderError>),
+    /// The next block number would be out of `u64` range.
+    #[error("The next block number would be out of `u64` range")]
+    BlockNumberOutOfRange,
+}
+
+/// Errors that can occur while retrieving the last block header.
+#[derive(Debug, Error)]
+pub enum LastBlockHeaderError {
+    /// A rusqlite error occurred.
+    #[error("A rusqlite error occurred: {0}")]
+    Rusqlite(#[from] rusqlite::Error),
+    /// A node DB query error occurred.
+    #[error("A node DB query error occurred")]
+    Query(#[from] node_db::QueryError),
+    /// The node DB contained no number for the last finalized block.
+    #[error("The node DB contained no number for the last finalized block")]
+    NoNumberForLastFinalizedBlock,
+    /// The node DB contained no timestamp for the last finalized block.
+    #[error("The node DB contained no timestamp for the last finalized block")]
+    NoTimestampForLastFinalizedBlock,
 }
 
 /// Any errors that might occur within [`check_and_apply_solutions`].
@@ -78,15 +123,10 @@ pub enum InvalidSolution {
 pub async fn run(
     builder_conn_pool: db::ConnectionPool,
     node_conn_pool: node::db::ConnectionPool,
-    check_conf: Arc<check::solution::CheckPredicateConfig>,
+    conf: &Config,
 ) -> Result<(), BuildBlockError> {
     loop {
-        build_block_fifo(
-            &builder_conn_pool,
-            node_conn_pool.clone(),
-            check_conf.clone(),
-        )
-        .await?;
+        build_block_fifo(&builder_conn_pool, node_conn_pool.clone(), conf).await?;
     }
 }
 
@@ -98,13 +138,39 @@ pub async fn run(
 pub async fn build_block_fifo(
     builder_conn_pool: &db::ConnectionPool,
     node_conn_pool: node::db::ConnectionPool,
-    check_conf: Arc<check::solution::CheckPredicateConfig>,
+    conf: &Config,
 ) -> Result<(), BuildBlockError> {
+    // Retrieve the last block header.
+    let last_block_header_opt = node_conn_pool
+        .acquire_then(|h| last_block_header(h))
+        .await?;
+
+    // Current timestamp as a `Duration` since `UNIX_EPOCH`.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| BuildBlockError::UnixTimeNotMonotonic)?;
+
+    // Determine the block number and timestamp for this block.
+    let (block_number, block_timestamp) = match last_block_header_opt {
+        None => (0, now),
+        Some((last_block_num, last_block_ts)) => {
+            let block_num = last_block_num
+                .checked_add(1)
+                .ok_or(BuildBlockError::BlockNumberOutOfRange)?;
+            if now < last_block_ts {
+                return Err(BuildBlockError::UnixTimeNotMonotonic);
+            }
+            (block_num, now)
+        }
+    };
+
     // Read out the oldest solutions.
-    let min = Duration::from_secs(0);
-    let max = Duration::from_secs(i64::MAX as _);
+    const MAX_TIMESTAMP_RANGE: Range<Duration> =
+        Duration::from_secs(0)..Duration::from_secs(i64::MAX as _);
     const LIMIT: i64 = 10_000; // TODO: Make this configurable?
-    let solutions = builder_conn_pool.list_solutions(min..max, LIMIT).await?;
+    let solutions = builder_conn_pool
+        .list_solutions(MAX_TIMESTAMP_RANGE, LIMIT)
+        .await?;
 
     let solutions = solutions
         .into_iter()
@@ -114,16 +180,120 @@ pub async fn build_block_fifo(
     let node_tx = state::Transaction::new(node_conn_pool);
 
     // Check and apply all solutions.
-    let output = check_and_apply_solutions(node_tx, solutions, &check_conf).await?;
+    let output = check_and_apply_solutions(node_tx, solutions, &conf.check).await?;
     let (node_tx, solutions, summary) = output;
 
-    // TODO:
-    // Remove solved solutions.
-    // Remove failed solutions older than
+    // Construct the block.
+    let block = Block {
+        number: block_number,
+        timestamp: block_timestamp,
+        solutions: solutions
+            .into_iter()
+            .map(|solution| Arc::unwrap_or_clone(solution))
+            .collect(),
+    };
 
-    // Commit the state changes, along with anything else we need to commit.
-    let (_output, _conn_pool) = node_tx.commit(|tx| Ok(())).await?;
+    // Commit the state changes, along with the constructed block.
+    let (_output, _conn_pool) = node_tx
+        .commit(move |tx| {
+            let block_ca = essential_hash::content_addr(&block);
+            node_db::insert_block(tx, &block)?;
+            // NOTE: Do we want to immediately finalize? We should wait for L1 conf no?
+            node_db::finalize_block(tx, &block_ca)?;
+            Ok(())
+        })
+        .await?;
 
+    // Record solution failures to the DB for submitter feedback.
+    record_solution_failures(
+        builder_conn_pool,
+        block_number
+            .try_into()
+            .expect("block_number should be `i64`"),
+        &summary.failed,
+        conf.solution_failures_to_keep,
+    )
+    .await?;
+
+    // Delete all attempted solutions, both those that succeeded and those that failed.
+    let attempted: Vec<_> = summary
+        .succeeded
+        .iter()
+        .map(|(ca, _util, _gas)| ca.clone())
+        .chain(summary.failed.iter().map(|(ca, _ix, _err)| ca.clone()))
+        .collect();
+    builder_conn_pool.delete_solutions(attempted).await?;
+
+    Ok(())
+}
+
+/// Retrieve the last block number and its timestamp.
+fn last_block_header(
+    conn: &rusqlite::Connection,
+) -> Result<Option<(u64, Duration)>, LastBlockHeaderError> {
+    // Retrieve the last block CA.
+    let block_ca = match node_db::get_latest_finalized_block_address(conn)? {
+        Some(ca) => ca,
+        None => return Ok(None),
+    };
+
+    // Retrieve the block's number and timestamp.
+    let number = node_db::get_block_number(conn, &block_ca)?
+        .ok_or(LastBlockHeaderError::NoNumberForLastFinalizedBlock)?;
+
+    // FIXME: Change `get_block_number` to `get_block_header` and include timestamp to avoid
+    // needing to list blocks like this.
+    let timestamp = {
+        let range = number..i64::MAX as u64;
+        let blocks = node_db::list_blocks(conn, range)?;
+        // We expect 1 block, but check for the error case where we get less than or more than 1.
+        let mut blocks: Vec<_> = blocks.into_iter().take(2).collect();
+        match blocks.len() {
+            1 => blocks.pop().expect("len is 1").timestamp,
+            _ => return Err(LastBlockHeaderError::NoTimestampForLastFinalizedBlock),
+        }
+    };
+
+    Ok(Some((number, timestamp)))
+}
+
+/// Record solution failures to the DB for submitter feedback.
+async fn record_solution_failures(
+    builder_conn_pool: &db::ConnectionPool,
+    attempt_block_num: i64,
+    failed: &[(ContentAddress, SolutionIndex, InvalidSolution)],
+    failures_to_keep: u32,
+) -> Result<(), db::AcquireThenRusqliteError> {
+    // Nothing to do if no failures.
+    if failed.is_empty() {
+        return Ok(());
+    }
+
+    // Construct the solution failures.
+    let failures: Vec<_> = failed
+        .iter()
+        .map(|(ca, sol_ix, invalid)| {
+            let failure = SolutionFailure {
+                attempt_block_num,
+                attempt_solution_ix: *sol_ix,
+                err_msg: format!("{invalid}").into(),
+            };
+            (ca.clone(), failure)
+        })
+        .collect();
+
+    // Acquire a connection and perform deletions in one transaction.
+    builder_conn_pool
+        .acquire_then(move |h| {
+            db::with_tx(h, |tx| {
+                for (ca, failure) in failures {
+                    builder_db::insert_solution_failure(tx, &ca, failure)?;
+                }
+                builder_db::delete_oldest_solution_failures(tx, failures_to_keep)
+            })?;
+            Ok::<_, rusqlite::Error>(())
+        })
+        .await?;
     Ok(())
 }
 
@@ -139,9 +309,12 @@ pub async fn check_and_apply_solutions(
     let mut solutions = vec![];
     let mut succeeded = vec![];
     let mut failed = vec![];
-    for (solution_ca, solution) in proposed_solutions {
+    for (ix, (solution_ca, solution)) in proposed_solutions.into_iter().enumerate() {
         match check_and_apply_solution(node_tx.clone(), &solution, check_conf).await? {
-            Err(invalid) => failed.push((solution_ca, invalid)),
+            Err(invalid) => {
+                let solution_ix: u32 = ix.try_into().expect("`u32::MAX` below solution limit");
+                failed.push((solution_ca, solution_ix, invalid));
+            }
             Ok((new_node_tx, util, gas)) => {
                 succeeded.push((solution_ca, util, gas));
                 solutions.push(solution);

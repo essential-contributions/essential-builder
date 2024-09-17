@@ -1,7 +1,7 @@
 //! Combines the `essential-builder-db` with `rusqlite-pool`'s `AsyncConnectionPool` to provide
 //! easy async access to the builder's DB.
 
-use essential_builder_db as builder_db;
+use essential_builder_db::{self as builder_db, SolutionFailure};
 use essential_types::{solution::Solution, ContentAddress};
 use rusqlite::Transaction;
 use rusqlite_pool::tokio::{AsyncConnectionHandle, AsyncConnectionPool};
@@ -123,6 +123,16 @@ impl ConnectionPool {
         .await
     }
 
+    /// Acquire a connection and call [`builder_db::insert_solution_failure`].
+    pub async fn insert_solution_failure(
+        &self,
+        solution_ca: ContentAddress,
+        failure: SolutionFailure<'static>,
+    ) -> Result<(), AcquireThenRusqliteError> {
+        self.acquire_then(move |h| builder_db::insert_solution_failure(h, &solution_ca, failure))
+            .await
+    }
+
     /// Acquire a connection and call [`builder_db::get_solution`].
     pub async fn get_solution(
         &self,
@@ -149,6 +159,59 @@ impl ConnectionPool {
         limit: i64,
     ) -> Result<Vec<(ContentAddress, Duration)>, AcquireThenRusqliteError> {
         self.acquire_then(move |h| builder_db::list_submissions(h, time_range, limit))
+            .await
+    }
+
+    /// Acquire a connection and call [`builder_db::latest_solution_failures`].
+    pub async fn latest_solution_failures(
+        &self,
+        solution_ca: ContentAddress,
+        limit: u32,
+    ) -> Result<Vec<SolutionFailure<'static>>, AcquireThenRusqliteError> {
+        self.acquire_then(move |h| builder_db::latest_solution_failures(h, &solution_ca, limit))
+            .await
+    }
+
+    /// Acquire a connection and call [`builder_db::delete_solution`].
+    pub async fn delete_solution(
+        &self,
+        ca: ContentAddress,
+    ) -> Result<(), AcquireThenRusqliteError> {
+        self.acquire_then(move |h| builder_db::delete_solution(h, &ca))
+            .await
+    }
+
+    /// Delete the given set of solutions in a single transaction.
+    pub async fn delete_solutions(
+        &self,
+        cas: impl 'static + IntoIterator<Item = ContentAddress> + Send,
+    ) -> Result<(), AcquireThenRusqliteError> {
+        self.acquire_then(|h| {
+            with_tx(h, |tx| {
+                for ca in cas {
+                    builder_db::delete_solution(tx, &ca)?;
+                }
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    /// Delete all solutions that only have submissions older than the given timestamp.
+    pub async fn delete_solutions_older_than(
+        &self,
+        timestamp: Duration,
+    ) -> Result<(), AcquireThenRusqliteError> {
+        self.acquire_then(move |h| builder_db::delete_solutions_older_than(h, timestamp))
+            .await
+    }
+
+    /// Acquire a connection and call [`builder_db::delete_oldest_failures`].
+    pub async fn delete_oldest_solution_failures(
+        &self,
+        keep_limit: u32,
+    ) -> Result<(), AcquireThenRusqliteError> {
+        self.acquire_then(move |h| builder_db::delete_oldest_solution_failures(h, keep_limit))
             .await
     }
 }

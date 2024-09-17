@@ -50,7 +50,10 @@ impl Transaction {
     /// Construct a transaction around the given node DB connection pool.
     pub fn new(conn_pool: node::db::ConnectionPool) -> Self {
         let mutations = Default::default();
-        Self { conn_pool, mutations }
+        Self {
+            conn_pool,
+            mutations,
+        }
     }
 
     /// Consume the transaction, commit the accumulated mutations to the inner connection pool,

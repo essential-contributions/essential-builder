@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 essential-check = { workspace = true }
 essential-builder-db = { workspace = true }
+essential-hash = { workspace = true }
 essential-node = { workspace = true }
 essential-node-db = { workspace = true }
 essential-types = { workspace = true }

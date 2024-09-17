@@ -24,6 +24,20 @@ use std::{ops::Range, time::Duration};
 pub mod error;
 pub mod sql;
 
+/// A failed attempt at applying a solution at a particular location within a particular block.
+///
+/// The builder stores these in order to provide solution submitters feedback in the case that a
+/// solution could not be applied trivially and did not make it into a block.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub struct SolutionFailure<'a> {
+    /// The block in which the builder attempted to apply the solution.
+    pub attempt_block_num: i64,
+    /// The solution index within the block at which the builder attempted to apply the solution.
+    pub attempt_solution_ix: u32,
+    /// An error message describing why the builder failed to apply the solution.
+    pub err_msg: std::borrow::Cow<'a, str>,
+}
+
 /// Encodes the given value into a blob.
 ///
 /// This serializes the value using postcard.
@@ -85,6 +99,29 @@ pub fn insert_solution_submission(
         },
     )?;
 
+    Ok(())
+}
+
+/// Record a failure to include a solution in a block.
+///
+/// We only record that a failure occurred, the block number, solution index at which the failure
+/// occurred, and a basic error message that can be returned to the submitter. If the user or
+/// application requires more detailed information about the failure, the block number and solution
+/// index should be enough to reconstruct the failure with a synced node.
+pub fn insert_solution_failure(
+    conn: &Connection,
+    solution_ca: &ContentAddress,
+    solution_failure: SolutionFailure,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        sql::insert::SOLUTION_FAILURE,
+        named_params! {
+            ":solution_addr": &solution_ca.0,
+            ":attempt_block_num": solution_failure.attempt_block_num,
+            ":attempt_solution_ix": solution_failure.attempt_solution_ix,
+            ":err_msg": solution_failure.err_msg.as_bytes(),
+        },
+    )?;
     Ok(())
 }
 
@@ -175,6 +212,38 @@ pub fn list_submissions(
     rows.collect()
 }
 
+/// Query the latest solution failures for a given solution content address.
+///
+/// Results are ordered by block number and solution index in descending order.
+///
+/// Returns at most `limit` failures.
+pub fn latest_solution_failures(
+    conn: &Connection,
+    ca: &ContentAddress,
+    limit: u32,
+) -> rusqlite::Result<Vec<SolutionFailure<'static>>> {
+    let ca_blob = &ca.0;
+    let mut stmt = conn.prepare(sql::query::LATEST_SOLUTION_FAILURES)?;
+    let rows = stmt.query_map(
+        named_params! {
+            ":solution_addr": ca_blob,
+            ":limit": limit,
+        },
+        |row| {
+            let attempt_block_num: i64 = row.get("attempt_block_num")?;
+            let attempt_solution_ix: u32 = row.get("attempt_solution_ix")?;
+            let err_msg_blob: Vec<u8> = row.get("err_msg")?;
+            let err_msg = String::from_utf8_lossy(&err_msg_blob).into_owned();
+            Ok(SolutionFailure {
+                attempt_block_num,
+                attempt_solution_ix,
+                err_msg: err_msg.into(),
+            })
+        },
+    )?;
+    rows.collect()
+}
+
 /// Delete the solution with the given CA from the database if it exists.
 ///
 /// This also deletes all submissions associated with the specified solution.
@@ -184,6 +253,35 @@ pub fn delete_solution(conn: &Connection, ca: &ContentAddress) -> rusqlite::Resu
         sql::delete::SOLUTION,
         named_params! {
             ":content_addr": ca_blob,
+        },
+    )?;
+    Ok(())
+}
+
+/// Delete all solutions older than the given timestamp.
+///
+/// This first deletes all submissions with a timestamp older than the given timestamp, then
+/// removes all solutions that no longer have an associated submission.
+pub fn delete_solutions_older_than(conn: &Connection, timestamp: Duration) -> rusqlite::Result<()> {
+    let secs = timestamp.as_secs();
+    let nanos = timestamp.subsec_nanos();
+    conn.execute(
+        sql::delete::SOLUTIONS_OLDER_THAN,
+        named_params! {
+            ":secs": secs,
+            ":nanos": nanos,
+        },
+    )?;
+    Ok(())
+}
+
+/// Delete the oldest failures for a solution until the number of stored failures
+/// is less than or equal to `keep_limit`.
+pub fn delete_oldest_solution_failures(conn: &Connection, keep_limit: u32) -> rusqlite::Result<()> {
+    conn.execute(
+        sql::delete::OLDEST_SOLUTION_FAILURES,
+        named_params! {
+            ":keep_limit": keep_limit as i64,
         },
     )?;
     Ok(())
