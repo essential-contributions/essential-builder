@@ -409,10 +409,13 @@ version = "0.1.0"
 dependencies = [
  "essential-hash",
  "essential-types",
+ "num_cpus",
  "postcard",
  "rusqlite",
+ "rusqlite-pool",
  "serde",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]

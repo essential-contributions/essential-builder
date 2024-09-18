@@ -17,11 +17,15 @@
 use error::{DecodeError, QueryError};
 use essential_hash::content_addr;
 use essential_types::{solution::Solution, ContentAddress, Hash};
+#[cfg(feature = "pool")]
+pub use pool::ConnectionPool;
 use rusqlite::{named_params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, time::Duration};
 
 pub mod error;
+#[cfg(feature = "pool")]
+pub mod pool;
 pub mod sql;
 
 /// A failed attempt at applying a solution at a particular location within a particular block.
@@ -285,4 +289,19 @@ pub fn delete_oldest_solution_failures(conn: &Connection, keep_limit: u32) -> ru
         },
     )?;
     Ok(())
+}
+
+/// Short-hand for constructing a transaction, providing it as an argument to
+/// the given function, then committing the transaction before returning.
+pub fn with_tx<T, E>(
+    conn: &mut rusqlite::Connection,
+    f: impl FnOnce(&mut Transaction) -> Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<rusqlite::Error>,
+{
+    let mut tx = conn.transaction()?;
+    let out = f(&mut tx)?;
+    tx.commit()?;
+    Ok(out)
 }

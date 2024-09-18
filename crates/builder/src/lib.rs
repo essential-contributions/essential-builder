@@ -17,7 +17,6 @@ use state::StateReadError;
 use std::{collections::HashMap, ops::Range, sync::Arc, time::Duration};
 use thiserror::Error;
 
-pub mod db;
 mod state;
 
 /// Block building configuration.
@@ -47,10 +46,10 @@ pub type SolutionIndex = u32;
 pub enum BuildBlockError {
     /// A builder DB query error occurred.
     #[error("A builder DB query error occurred: {0}")]
-    BuilderQuery(#[from] db::AcquireThenQueryError),
+    BuilderQuery(#[from] builder_db::error::AcquireThenQueryError),
     /// A builder DB rusqlite error occurred.
     #[error("A builder DB rusqlite error occurred: {0}")]
-    BuilderRusqlite(#[from] db::AcquireThenRusqliteError),
+    BuilderRusqlite(#[from] builder_db::error::AcquireThenRusqliteError),
     /// A node DB rusqlite error occurred.
     #[error("A node DB rusqlite error occurred: {0}")]
     NodeRusqlite(#[from] node::db::AcquireThenRusqliteError),
@@ -121,7 +120,7 @@ pub enum InvalidSolution {
 }
 
 pub async fn run(
-    builder_conn_pool: db::ConnectionPool,
+    builder_conn_pool: builder_db::ConnectionPool,
     node_conn_pool: node::db::ConnectionPool,
     conf: &Config,
 ) -> Result<(), BuildBlockError> {
@@ -136,7 +135,7 @@ pub async fn run(
 /// received. No attempt is made at MEV, and solutions that don't succeed in the immediate order
 /// provided are considered failed.
 pub async fn build_block_fifo(
-    builder_conn_pool: &db::ConnectionPool,
+    builder_conn_pool: &builder_db::ConnectionPool,
     node_conn_pool: node::db::ConnectionPool,
     conf: &Config,
 ) -> Result<(), BuildBlockError> {
@@ -187,10 +186,7 @@ pub async fn build_block_fifo(
     let block = Block {
         number: block_number,
         timestamp: block_timestamp,
-        solutions: solutions
-            .into_iter()
-            .map(|solution| Arc::unwrap_or_clone(solution))
-            .collect(),
+        solutions: solutions.into_iter().map(Arc::unwrap_or_clone).collect(),
     };
 
     // Commit the state changes, along with the constructed block.
@@ -259,11 +255,11 @@ fn last_block_header(
 
 /// Record solution failures to the DB for submitter feedback.
 async fn record_solution_failures(
-    builder_conn_pool: &db::ConnectionPool,
+    builder_conn_pool: &builder_db::ConnectionPool,
     attempt_block_num: i64,
     failed: &[(ContentAddress, SolutionIndex, InvalidSolution)],
     failures_to_keep: u32,
-) -> Result<(), db::AcquireThenRusqliteError> {
+) -> Result<(), builder_db::error::AcquireThenRusqliteError> {
     // Nothing to do if no failures.
     if failed.is_empty() {
         return Ok(());
@@ -285,7 +281,7 @@ async fn record_solution_failures(
     // Acquire a connection and perform deletions in one transaction.
     builder_conn_pool
         .acquire_then(move |h| {
-            db::with_tx(h, |tx| {
+            builder_db::with_tx(h, |tx| {
                 for (ca, failure) in failures {
                     builder_db::insert_solution_failure(tx, &ca, failure)?;
                 }

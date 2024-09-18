@@ -8,6 +8,7 @@
 //! the block, while still enabling asynchronous queries for predicate and state via the connection
 //! pool.
 
+use essential_builder_db as builder_db;
 use essential_check::state_read_vm::StateRead;
 use essential_node as node;
 use essential_node_db as node_db;
@@ -73,7 +74,7 @@ impl Transaction {
         } = self;
         let output = conn_pool
             .acquire_then(|conn| {
-                crate::db::with_tx(conn, move |tx| {
+                builder_db::with_tx(conn, move |tx| {
                     for ((contract_ca, key), value) in mutations {
                         node_db::update_state(tx, &contract_ca, &key, &value)?;
                     }

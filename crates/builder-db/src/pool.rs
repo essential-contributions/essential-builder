@@ -1,12 +1,12 @@
-//! Combines the `essential-builder-db` with `rusqlite-pool`'s `AsyncConnectionPool` to provide
-//! easy async access to the builder's DB.
+//! Provides an async-friendly [`ConnectionPool`] implementation.
 
-use essential_builder_db::{self as builder_db, SolutionFailure};
+use crate::{
+    error::{AcquireThenError, AcquireThenQueryError, AcquireThenRusqliteError},
+    with_tx,
+};
 use essential_types::{solution::Solution, ContentAddress};
-use rusqlite::Transaction;
 use rusqlite_pool::tokio::{AsyncConnectionHandle, AsyncConnectionPool};
 use std::{ops::Range, path::PathBuf, sync::Arc, time::Duration};
-use thiserror::Error;
 use tokio::sync::{AcquireError, TryAcquireError};
 
 /// Access to the builder's DB connection pool and DB-access-related methods.
@@ -37,26 +37,6 @@ pub enum Source {
     /// Use the database at the given path.
     Path(PathBuf),
 }
-
-/// Any error that might occur during builder DB connection pool access.
-#[derive(Debug, Error)]
-pub enum AcquireThenError<E> {
-    /// Failed to acquire a DB connection.
-    #[error("failed to acquire a DB connection: {0}")]
-    Acquire(#[from] tokio::sync::AcquireError),
-    /// The tokio spawn blocking task failed to join.
-    #[error("failed to join task: {0}")]
-    Join(#[from] tokio::task::JoinError),
-    /// The error returned by the `acquire_then` function result.
-    #[error("{0}")]
-    Inner(E),
-}
-
-/// An `acquire_then` error whose function returns a result with a rusqlite error.
-pub type AcquireThenRusqliteError = AcquireThenError<rusqlite::Error>;
-
-/// An `acquire_then` error whose function returns a result with a query error.
-pub type AcquireThenQueryError = AcquireThenError<builder_db::error::QueryError>;
 
 impl ConnectionPool {
     /// Create the connection pool from the given configuration.
@@ -103,13 +83,13 @@ impl ConnectionPool {
             .map_err(AcquireThenError::Inner)
     }
 
-    /// Acquire a connection and call [`builder_db::create_tables`].
+    /// Acquire a connection and call [`crate::create_tables`].
     pub async fn create_tables(&self) -> Result<(), AcquireThenRusqliteError> {
-        self.acquire_then(|h| with_tx(h, |tx| builder_db::create_tables(tx)))
+        self.acquire_then(|h| with_tx(h, |tx| crate::create_tables(tx)))
             .await
     }
 
-    /// Acquire a connection and call [`builder_db::insert_solution_submission`].
+    /// Acquire a connection and call [`crate::insert_solution_submission`].
     pub async fn insert_solution_submission(
         &self,
         solution: Arc<Solution>,
@@ -117,67 +97,67 @@ impl ConnectionPool {
     ) -> Result<(), AcquireThenRusqliteError> {
         self.acquire_then(move |h| {
             with_tx(h, |tx| {
-                builder_db::insert_solution_submission(tx, &solution, timestamp)
+                crate::insert_solution_submission(tx, &solution, timestamp)
             })
         })
         .await
     }
 
-    /// Acquire a connection and call [`builder_db::insert_solution_failure`].
+    /// Acquire a connection and call [`crate::insert_solution_failure`].
     pub async fn insert_solution_failure(
         &self,
         solution_ca: ContentAddress,
-        failure: SolutionFailure<'static>,
+        failure: crate::SolutionFailure<'static>,
     ) -> Result<(), AcquireThenRusqliteError> {
-        self.acquire_then(move |h| builder_db::insert_solution_failure(h, &solution_ca, failure))
+        self.acquire_then(move |h| crate::insert_solution_failure(h, &solution_ca, failure))
             .await
     }
 
-    /// Acquire a connection and call [`builder_db::get_solution`].
+    /// Acquire a connection and call [`crate::get_solution`].
     pub async fn get_solution(
         &self,
         ca: ContentAddress,
     ) -> Result<Option<Solution>, AcquireThenQueryError> {
-        self.acquire_then(move |h| builder_db::get_solution(h, &ca))
+        self.acquire_then(move |h| crate::get_solution(h, &ca))
             .await
     }
 
-    /// Acquire a connection and call [`builder_db::list_solutions`].
+    /// Acquire a connection and call [`crate::list_solutions`].
     pub async fn list_solutions(
         &self,
         time_range: Range<Duration>,
         limit: i64,
     ) -> Result<Vec<(ContentAddress, Solution, Duration)>, AcquireThenQueryError> {
-        self.acquire_then(move |h| builder_db::list_solutions(h, time_range, limit))
+        self.acquire_then(move |h| crate::list_solutions(h, time_range, limit))
             .await
     }
 
-    /// Acquire a connection and call [`builder_db::list_submissions`].
+    /// Acquire a connection and call [`crate::list_submissions`].
     pub async fn list_submissions(
         &self,
         time_range: Range<Duration>,
         limit: i64,
     ) -> Result<Vec<(ContentAddress, Duration)>, AcquireThenRusqliteError> {
-        self.acquire_then(move |h| builder_db::list_submissions(h, time_range, limit))
+        self.acquire_then(move |h| crate::list_submissions(h, time_range, limit))
             .await
     }
 
-    /// Acquire a connection and call [`builder_db::latest_solution_failures`].
+    /// Acquire a connection and call [`crate::latest_solution_failures`].
     pub async fn latest_solution_failures(
         &self,
         solution_ca: ContentAddress,
         limit: u32,
-    ) -> Result<Vec<SolutionFailure<'static>>, AcquireThenRusqliteError> {
-        self.acquire_then(move |h| builder_db::latest_solution_failures(h, &solution_ca, limit))
+    ) -> Result<Vec<crate::SolutionFailure<'static>>, AcquireThenRusqliteError> {
+        self.acquire_then(move |h| crate::latest_solution_failures(h, &solution_ca, limit))
             .await
     }
 
-    /// Acquire a connection and call [`builder_db::delete_solution`].
+    /// Acquire a connection and call [`crate::delete_solution`].
     pub async fn delete_solution(
         &self,
         ca: ContentAddress,
     ) -> Result<(), AcquireThenRusqliteError> {
-        self.acquire_then(move |h| builder_db::delete_solution(h, &ca))
+        self.acquire_then(move |h| crate::delete_solution(h, &ca))
             .await
     }
 
@@ -189,7 +169,7 @@ impl ConnectionPool {
         self.acquire_then(|h| {
             with_tx(h, |tx| {
                 for ca in cas {
-                    builder_db::delete_solution(tx, &ca)?;
+                    crate::delete_solution(tx, &ca)?;
                 }
                 Ok(())
             })
@@ -202,16 +182,16 @@ impl ConnectionPool {
         &self,
         timestamp: Duration,
     ) -> Result<(), AcquireThenRusqliteError> {
-        self.acquire_then(move |h| builder_db::delete_solutions_older_than(h, timestamp))
+        self.acquire_then(move |h| crate::delete_solutions_older_than(h, timestamp))
             .await
     }
 
-    /// Acquire a connection and call [`builder_db::delete_oldest_failures`].
+    /// Acquire a connection and call [`crate::delete_oldest_failures`].
     pub async fn delete_oldest_solution_failures(
         &self,
         keep_limit: u32,
     ) -> Result<(), AcquireThenRusqliteError> {
-        self.acquire_then(move |h| builder_db::delete_oldest_solution_failures(h, keep_limit))
+        self.acquire_then(move |h| crate::delete_oldest_solution_failures(h, keep_limit))
             .await
     }
 }
@@ -270,28 +250,13 @@ impl Default for Config {
     }
 }
 
-/// Short-hand for constructing a transaction, providing it as an argument to
-/// the given function, then committing the transaction before returning.
-pub(crate) fn with_tx<T, E>(
-    conn: &mut rusqlite::Connection,
-    f: impl FnOnce(&mut Transaction) -> Result<T, E>,
-) -> Result<T, E>
-where
-    E: From<rusqlite::Error>,
-{
-    let mut tx = conn.transaction()?;
-    let out = f(&mut tx)?;
-    tx.commit()?;
-    Ok(out)
-}
-
 /// Initialise the connection pool from the given configuration.
 fn new_conn_pool(conf: &Config) -> rusqlite::Result<AsyncConnectionPool> {
     AsyncConnectionPool::new(conf.conn_limit, || new_conn(&conf.source))
 }
 
 /// Create a new connection given a DB source.
-pub(crate) fn new_conn(source: &Source) -> rusqlite::Result<rusqlite::Connection> {
+fn new_conn(source: &Source) -> rusqlite::Result<rusqlite::Connection> {
     match source {
         Source::Memory(id) => new_mem_conn(id),
         Source::Path(p) => rusqlite::Connection::open(p),
