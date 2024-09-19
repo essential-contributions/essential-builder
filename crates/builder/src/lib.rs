@@ -1,9 +1,13 @@
 //! A block builder implementation for the Essential protocol.
 
+use error::{
+    ApplySolutionError, ApplySolutionsError, BuildBlockError, LastBlockHeaderError,
+    SolutionPredicatesError, InvalidSolution,
+};
 use essential_builder_db::{self as builder_db, SolutionFailure};
 use essential_check::{
     self as check,
-    solution::{CheckPredicateConfig, PredicatesError, Utility},
+    solution::{CheckPredicateConfig, Utility},
     state_read_vm::Gas,
 };
 use essential_node as node;
@@ -13,10 +17,9 @@ use essential_types::{
     solution::{Solution, SolutionData},
     Block, ContentAddress, PredicateAddress,
 };
-use state::StateReadError;
 use std::{collections::HashMap, ops::Range, sync::Arc, time::Duration};
-use thiserror::Error;
 
+pub mod error;
 mod state;
 
 /// Block building configuration.
@@ -41,102 +44,32 @@ pub struct SolutionsSummary {
 /// The index of a solution within a block.
 pub type SolutionIndex = u32;
 
-/// Any errors that might occur within [`build_block_fifo`].
-#[derive(Debug, Error)]
-pub enum BuildBlockError {
-    /// A builder DB query error occurred.
-    #[error("A builder DB query error occurred: {0}")]
-    BuilderQuery(#[from] builder_db::error::AcquireThenQueryError),
-    /// A builder DB rusqlite error occurred.
-    #[error("A builder DB rusqlite error occurred: {0}")]
-    BuilderRusqlite(#[from] builder_db::error::AcquireThenRusqliteError),
-    /// A node DB rusqlite error occurred.
-    #[error("A node DB rusqlite error occurred: {0}")]
-    NodeRusqlite(#[from] node::db::AcquireThenRusqliteError),
-    /// Failed to check and apply a sequence of solutions.
-    #[error("Failed to check and apply solutions: {0}")]
-    ApplySolutions(#[from] ApplySolutionsError),
-    /// System time produced a non-monotonic timestamp.
-    #[error("System time produced non-monotonic timestamp")]
-    UnixTimeNotMonotonic,
-    /// Failed to retrieve the last block header.
-    #[error("Failed to retrieve the last block header")]
-    LastBlockHeader(#[from] node::db::AcquireThenError<LastBlockHeaderError>),
-    /// The next block number would be out of `u64` range.
-    #[error("The next block number would be out of `u64` range")]
-    BlockNumberOutOfRange,
-}
-
-/// Errors that can occur while retrieving the last block header.
-#[derive(Debug, Error)]
-pub enum LastBlockHeaderError {
-    /// A rusqlite error occurred.
-    #[error("A rusqlite error occurred: {0}")]
-    Rusqlite(#[from] rusqlite::Error),
-    /// A node DB query error occurred.
-    #[error("A node DB query error occurred")]
-    Query(#[from] node_db::QueryError),
-    /// The node DB contained no number for the last finalized block.
-    #[error("The node DB contained no number for the last finalized block")]
-    NoNumberForLastFinalizedBlock,
-    /// The node DB contained no timestamp for the last finalized block.
-    #[error("The node DB contained no timestamp for the last finalized block")]
-    NoTimestampForLastFinalizedBlock,
-}
-
-/// Any errors that might occur within [`check_and_apply_solutions`].
-#[derive(Debug, Error)]
-pub enum ApplySolutionsError {
-    #[error("an error occurred while attempting to apply a solution: {0}")]
-    ApplySolution(#[from] ApplySolutionError),
-}
-
-/// Any errors that might occur within [`check_and_apply_solution`].
-#[derive(Debug, Error)]
-pub enum ApplySolutionError {
-    #[error("a rusqlite error occurred: {0}")]
-    Rusqlite(#[from] rusqlite::Error),
-    #[error("a node DB query failed: {0}")]
-    NodeQuery(#[from] node::db::AcquireThenQueryError),
-}
-
-#[derive(Debug, Error)]
-pub enum SolutionPredicatesError {
-    #[error("an error occurred while querying the node DB: {0}")]
-    Query(#[from] node::db::AcquireThenQueryError),
-    #[error("the node DB is missing a required predicate ({0})")]
-    PredicateDoesNotExist(ContentAddress),
-}
-
-/// Represents the reason why a [`Solution`] is invalid.
-#[derive(Debug, Error)]
-pub enum InvalidSolution {
-    /// Solution specified a predicate to solve that does not exist.
-    #[error("Solution specified a predicate to solve that does not exist")]
-    PredicateDoesNotExist(ContentAddress),
-    /// Validation of the solution predicates failed.
-    #[error("Validation of the solution predicates failed: {0}")]
-    Predicates(PredicatesError<StateReadError>),
-}
-
-pub async fn run(
-    builder_conn_pool: builder_db::ConnectionPool,
-    node_conn_pool: node::db::ConnectionPool,
-    conf: &Config,
-) -> Result<(), BuildBlockError> {
-    loop {
-        build_block_fifo(&builder_conn_pool, node_conn_pool.clone(), conf).await?;
-    }
-}
-
 /// Naiively build a block in FIFO order.
 ///
-/// Attempts to build a block from the given proposed solutions in the order in which they're
-/// received. No attempt is made at MEV, and solutions that don't succeed in the immediate order
-/// provided are considered failed.
+/// Attempts to build a block from the available solutions in the pool in the order in which they
+/// were received. No attempt is made at MEV, and solutions that don't succeed in the immediate
+/// order provided are considered failed.
+///
+/// # Example
+///
+/// ```no_run
+/// # async fn f() -> Result<(), essential_builder::error::BuildBlockError> {
+/// # let builder_conn_pool: essential_builder_db::ConnectionPool = todo!();
+/// # let node_conn_pool: essential_node::db::ConnectionPool = todo!();
+/// # let config: essential_builder::Config = todo!();
+/// use essential_builder::build_block_fifo;
+///
+/// // Build blocks in a loop.
+/// loop {
+///     build_block_fifo(&builder_conn_pool, &node_conn_pool, &config).await?;
+///
+///     // Wait if necessary.
+/// }
+/// # }
+/// ```
 pub async fn build_block_fifo(
     builder_conn_pool: &builder_db::ConnectionPool,
-    node_conn_pool: node::db::ConnectionPool,
+    node_conn_pool: &node::db::ConnectionPool,
     conf: &Config,
 ) -> Result<(), BuildBlockError> {
     // Retrieve the last block header.
@@ -145,23 +78,26 @@ pub async fn build_block_fifo(
         .await?;
 
     // Current timestamp as a `Duration` since `UNIX_EPOCH`.
-    let now = std::time::SystemTime::now()
+    let block_timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| BuildBlockError::UnixTimeNotMonotonic)?;
+        .map_err(|_| BuildBlockError::TimestampNotMonotonic)?;
 
     // Determine the block number and timestamp for this block.
-    let (block_number, block_timestamp) = match last_block_header_opt {
-        None => (0, now),
+    let block_number = match last_block_header_opt {
+        None => 0,
         Some((last_block_num, last_block_ts)) => {
             let block_num = last_block_num
                 .checked_add(1)
                 .ok_or(BuildBlockError::BlockNumberOutOfRange)?;
-            if now < last_block_ts {
-                return Err(BuildBlockError::UnixTimeNotMonotonic);
+            if block_timestamp < last_block_ts {
+                return Err(BuildBlockError::TimestampNotMonotonic);
             }
-            (block_num, now)
+            block_num
         }
     };
+
+    // Prepare the node DB transaction for state accumulation.
+    let node_tx = state::Transaction::new(node_conn_pool.clone());
 
     // Read out the oldest solutions.
     const MAX_TIMESTAMP_RANGE: Range<Duration> =
@@ -174,9 +110,6 @@ pub async fn build_block_fifo(
     let solutions = solutions
         .into_iter()
         .map(|(ca, solution, _ts)| (ca, Arc::new(solution)));
-
-    // Prepare the node DB transaction for state accumulation.
-    let node_tx = state::Transaction::new(node_conn_pool);
 
     // Check and apply all solutions.
     let output = check_and_apply_solutions(node_tx, solutions, &conf.check).await?;

@@ -33,7 +33,8 @@ pub struct Transaction {
     mutations: imbl::HashMap<(ContentAddress, Key), Value>,
 }
 
-/// Any errors that might occur in the [`StateRead`] implementation.
+/// Any errors that might occur in the [`Transaction`][crate::state::Transaction]'s  [`StateRead`]
+/// implementation.
 #[derive(Debug, Error)]
 pub enum StateReadError {
     /// A state query to the underlying DB connection pool failed.
