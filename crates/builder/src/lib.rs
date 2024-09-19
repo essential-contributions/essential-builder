@@ -48,6 +48,13 @@ pub type SolutionIndex = u32;
 /// were received. No attempt is made at MEV, and solutions that don't succeed in the immediate
 /// order provided are considered failed.
 ///
+/// All solutions that are attempted (both those that succeed and those that fail) are deleted from
+/// the builder's solution pool. Failed solutions are recorded to the builder's `solution_failure`
+/// table, while the successful solutions can be found in the block.
+///
+/// An in-memory [`SolutionsSummary`] is returned that describes which solutions succeeded and
+/// which ones failed for convenience.
+///
 /// # Example
 ///
 /// ```no_run
@@ -96,6 +103,9 @@ pub async fn build_block_fifo(
 
     // Prepare the node DB transaction for state accumulation.
     let node_tx = state::Transaction::new(node_conn_pool.clone());
+
+    // TODO: Apply any "special" block-builder specific solutions here
+    // (e.g. updating block number and timestamp in the block contract).
 
     // Read out the oldest solutions.
     const MAX_TIMESTAMP_RANGE: Range<Duration> =
