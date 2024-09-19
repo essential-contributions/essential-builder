@@ -8,6 +8,7 @@
 //! the block, while still enabling asynchronous queries for predicate and state via the connection
 //! pool.
 
+use crate::error::StateReadError;
 use essential_builder_db as builder_db;
 use essential_check::state_read_vm::StateRead;
 use essential_node as node;
@@ -17,7 +18,6 @@ use essential_types::{
 };
 use futures::FutureExt;
 use std::{future::Future, pin::Pin};
-use thiserror::Error;
 
 /// A simple node DB transaction around a connection pool.
 ///
@@ -31,21 +31,6 @@ use thiserror::Error;
 pub struct Transaction {
     conn_pool: node::db::ConnectionPool,
     mutations: imbl::HashMap<(ContentAddress, Key), Value>,
-}
-
-/// Any errors that might occur in the [`Transaction`][crate::state::Transaction]'s  [`StateRead`]
-/// implementation.
-#[derive(Debug, Error)]
-pub enum StateReadError {
-    /// A state query to the underlying DB connection pool failed.
-    #[error("a state query failed: {0}")]
-    Query(#[from] node::db::AcquireThenQueryError),
-    /// No entry exists for the given key.
-    #[error("No entry exists for the given key {0:?}")]
-    NoEntry(Key),
-    /// Key out of range.
-    #[error("A key would be out of range: `key` {key:?}, `num_values` {num_values}")]
-    OutOfRange { key: Key, num_values: usize },
 }
 
 impl Transaction {

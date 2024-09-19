@@ -5,45 +5,6 @@ use std::time::Duration;
 mod util;
 
 #[test]
-fn delete_solutions_older_than() {
-    // Generate some test solutions with unique timestamps, some overlapping.
-    let solutions: Vec<_> = util::test_blocks(10)
-        .into_iter()
-        .flat_map(|b| b.solutions.into_iter().map(move |s| (s, b.timestamp)))
-        .collect();
-
-    // Create an in-memory SQLite database.
-    let mut conn = Connection::open_in_memory().unwrap();
-
-    // Create the necessary tables and write the solutions.
-    let tx = conn.transaction().unwrap();
-    builder_db::create_tables(&tx).unwrap();
-    for (solution, timestamp) in &solutions {
-        builder_db::insert_solution_submission(&tx, solution, *timestamp).unwrap();
-    }
-    tx.commit().unwrap();
-
-    // Check all solutions were written correctly.
-    for (expected_solution, _ts) in &solutions {
-        let ca = essential_hash::content_addr(expected_solution);
-        let solution = builder_db::get_solution(&conn, &ca).unwrap().unwrap();
-        assert_eq!(expected_solution, &solution);
-    }
-
-    // Delete all solutions older than the 5 second timestamp.
-    let timestamp = Duration::from_secs(5);
-    builder_db::delete_solutions_older_than(&conn, timestamp).unwrap();
-
-    // Check all solutions before the timestamp were deleted.
-    let min = Duration::from_secs(0);
-    let max = Duration::from_secs(i64::MAX as _);
-    let limit = i64::MAX;
-    for (_ca, _solution, ts) in builder_db::list_solutions(&conn, min..max, limit).unwrap() {
-        assert!(timestamp <= ts);
-    }
-}
-
-#[test]
 fn delete_oldest_failures() {
     // Generate a test solution and its content address.
     let block = util::test_block(0, Duration::from_secs(0));

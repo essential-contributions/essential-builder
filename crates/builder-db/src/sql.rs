@@ -27,7 +27,6 @@ pub mod create {
 /// Statements for deleting rows from tables.
 pub mod delete {
     decl_const_sql_str!(SOLUTION, "delete/solution.sql");
-    decl_const_sql_str!(SOLUTIONS_OLDER_THAN, "delete/solutions_older_than.sql");
     decl_const_sql_str!(
         OLDEST_SOLUTION_FAILURES,
         "delete/oldest_solution_failures.sql"

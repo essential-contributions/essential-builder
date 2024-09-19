@@ -9,10 +9,14 @@
 //!
 //! - [`create_tables`]: Creates all required tables in the database.
 //! - [`insert_solution_submission`]: Inserts a solution and its associated submission timestamp.
+//! - [`insert_solution_failure`]: Records a failure to apply a solution to a block.
 //! - [`get_solution`]: Retrieves a solution by its content address.
 //! - [`list_solutions`]: Lists all solutions that were submitted within a given time range.
 //! - [`list_submissions`]: Lists submissions based on timestamp.
-//! - [`delete_solution`]: Deletes a solution and its submissions given the solution's content address.
+//! - [`latest_solution_failures`]: Queries the latest failures for a given solution.
+//! - [`delete_solution`]: Deletes a solution and its submissions given the solution's address.
+//! - [`delete_oldest_solution_failures`]: Deletes the oldest solution failures until the
+//!   stored number is within a given limit.
 
 use error::{DecodeError, QueryError};
 use essential_hash::content_addr;
@@ -257,23 +261,6 @@ pub fn delete_solution(conn: &Connection, ca: &ContentAddress) -> rusqlite::Resu
         sql::delete::SOLUTION,
         named_params! {
             ":content_addr": ca_blob,
-        },
-    )?;
-    Ok(())
-}
-
-/// Delete all solutions older than the given timestamp.
-///
-/// This first deletes all submissions with a timestamp older than the given timestamp, then
-/// removes all solutions that no longer have an associated submission.
-pub fn delete_solutions_older_than(conn: &Connection, timestamp: Duration) -> rusqlite::Result<()> {
-    let secs = timestamp.as_secs();
-    let nanos = timestamp.subsec_nanos();
-    conn.execute(
-        sql::delete::SOLUTIONS_OLDER_THAN,
-        named_params! {
-            ":secs": secs,
-            ":nanos": nanos,
         },
     )?;
     Ok(())

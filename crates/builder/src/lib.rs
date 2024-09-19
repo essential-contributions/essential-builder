@@ -18,7 +18,7 @@ use essential_types::{
 use std::{collections::HashMap, ops::Range, sync::Arc, time::Duration};
 
 pub mod error;
-mod state;
+pub mod state;
 
 /// Block building configuration.
 pub struct Config {
@@ -42,6 +42,20 @@ pub struct SolutionsSummary {
 /// The index of a solution within a block.
 pub type SolutionIndex = u32;
 
+impl Config {
+    /// The default number of solution failures that the builder will retain in its DB.
+    pub const DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT: u32 = 10_000;
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            solution_failures_to_keep: Self::DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT,
+            check: Default::default(),
+        }
+    }
+}
+
 /// Naiively build a block in FIFO order.
 ///
 /// Attempts to build a block from the available solutions in the pool in the order in which they
@@ -61,8 +75,9 @@ pub type SolutionIndex = u32;
 /// # async fn f() -> Result<(), essential_builder::error::BuildBlockError> {
 /// # let builder_conn_pool: essential_builder_db::ConnectionPool = todo!();
 /// # let node_conn_pool: essential_node::db::ConnectionPool = todo!();
-/// # let config: essential_builder::Config = todo!();
-/// use essential_builder::build_block_fifo;
+/// use essential_builder::{build_block_fifo, Config};
+///
+/// let config = Config::default();
 ///
 /// // Build blocks in a loop.
 /// loop {
@@ -87,7 +102,7 @@ pub async fn build_block_fifo(
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| BuildBlockError::TimestampNotMonotonic)?;
 
-    // Determine the block number and timestamp for this block.
+    // Determine the block number for this block.
     let block_number = match last_block_header_opt {
         None => 0,
         Some((last_block_num, last_block_ts)) => {
@@ -194,46 +209,6 @@ fn last_block_header(
     Ok(Some((number, timestamp)))
 }
 
-/// Record solution failures to the DB for submitter feedback.
-async fn record_solution_failures(
-    builder_conn_pool: &builder_db::ConnectionPool,
-    attempt_block_num: i64,
-    failed: &[(ContentAddress, SolutionIndex, InvalidSolution)],
-    failures_to_keep: u32,
-) -> Result<(), builder_db::error::AcquireThenRusqliteError> {
-    // Nothing to do if no failures.
-    if failed.is_empty() {
-        return Ok(());
-    }
-
-    // Construct the solution failures.
-    let failures: Vec<_> = failed
-        .iter()
-        .map(|(ca, sol_ix, invalid)| {
-            let failure = SolutionFailure {
-                attempt_block_num,
-                attempt_solution_ix: *sol_ix,
-                err_msg: format!("{invalid}").into(),
-            };
-            (ca.clone(), failure)
-        })
-        .collect();
-
-    // Acquire a connection, record failures and delete old failures in one transaction.
-    builder_conn_pool
-        .acquire_then(move |h| {
-            builder_db::with_tx(h, |tx| {
-                for (ca, failure) in failures {
-                    builder_db::insert_solution_failure(tx, &ca, failure)?;
-                }
-                builder_db::delete_oldest_solution_failures(tx, failures_to_keep)
-            })?;
-            Ok::<_, rusqlite::Error>(())
-        })
-        .await?;
-    Ok(())
-}
-
 /// Check and apply all solutions from the given sequence of proposed solutions.
 ///
 /// Upon completion, the given transaction will have applied all state mutations proposed by the
@@ -320,4 +295,44 @@ async fn get_solution_predicates(
     }
 
     Ok(map)
+}
+
+/// Record solution failures to the DB for submitter feedback.
+async fn record_solution_failures(
+    builder_conn_pool: &builder_db::ConnectionPool,
+    attempt_block_num: i64,
+    failed: &[(ContentAddress, SolutionIndex, InvalidSolution)],
+    failures_to_keep: u32,
+) -> Result<(), builder_db::error::AcquireThenRusqliteError> {
+    // Nothing to do if no failures.
+    if failed.is_empty() {
+        return Ok(());
+    }
+
+    // Construct the solution failures.
+    let failures: Vec<_> = failed
+        .iter()
+        .map(|(ca, sol_ix, invalid)| {
+            let failure = SolutionFailure {
+                attempt_block_num,
+                attempt_solution_ix: *sol_ix,
+                err_msg: format!("{invalid}").into(),
+            };
+            (ca.clone(), failure)
+        })
+        .collect();
+
+    // Acquire a connection, record failures and delete old failures in one transaction.
+    builder_conn_pool
+        .acquire_then(move |h| {
+            builder_db::with_tx(h, |tx| {
+                for (ca, failure) in failures {
+                    builder_db::insert_solution_failure(tx, &ca, failure)?;
+                }
+                builder_db::delete_oldest_solution_failures(tx, failures_to_keep)
+            })?;
+            Ok::<_, rusqlite::Error>(())
+        })
+        .await?;
+    Ok(())
 }

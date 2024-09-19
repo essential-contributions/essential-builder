@@ -177,16 +177,7 @@ impl ConnectionPool {
         .await
     }
 
-    /// Delete all solutions that only have submissions older than the given timestamp.
-    pub async fn delete_solutions_older_than(
-        &self,
-        timestamp: Duration,
-    ) -> Result<(), AcquireThenRusqliteError> {
-        self.acquire_then(move |h| crate::delete_solutions_older_than(h, timestamp))
-            .await
-    }
-
-    /// Acquire a connection and call [`crate::delete_oldest_failures`].
+    /// Acquire a connection and call [`crate::delete_oldest_solution_failures`].
     pub async fn delete_oldest_solution_failures(
         &self,
         keep_limit: u32,
