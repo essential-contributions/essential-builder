@@ -21,6 +21,7 @@ pub mod error;
 pub mod state;
 
 /// Block building configuration.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Config {
     /// The maximum number of solution failures to keep in the DB, used to provide feedback to the
     /// submitters.
@@ -32,6 +33,7 @@ pub struct Config {
 }
 
 /// A summary of building a block, returned by [`build_block_fifo`].
+#[derive(Debug)]
 pub struct SolutionsSummary {
     /// The addresses of all successful solutions.
     pub succeeded: Vec<(ContentAddress, Gas)>,

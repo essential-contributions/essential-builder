@@ -26,7 +26,7 @@ use std::{future::Future, pin::Pin};
 /// Cloning the transaction is equivalent to taking a "snapshot" of the transaction.
 ///
 /// The transaction is not committed on drop. [`Transaction::commit`] must be called to
-/// commit the transaction to to the DB via the connection pool.
+/// commit the transaction to the DB via the connection pool.
 #[derive(Clone)]
 pub struct Transaction {
     conn_pool: node::db::ConnectionPool,

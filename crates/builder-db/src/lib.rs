@@ -266,7 +266,7 @@ pub fn delete_solution(conn: &Connection, ca: &ContentAddress) -> rusqlite::Resu
     Ok(())
 }
 
-/// Delete the oldest failures for a solution until the number of stored failures
+/// Delete the oldest solution failures until the number of stored failures
 /// is less than or equal to `keep_limit`.
 pub fn delete_oldest_solution_failures(conn: &Connection, keep_limit: u32) -> rusqlite::Result<()> {
     conn.execute(
