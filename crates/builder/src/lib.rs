@@ -61,7 +61,7 @@ pub type SolutionIndex = u32;
 /// loop {
 ///     build_block_fifo(&builder_conn_pool, &node_conn_pool, &config).await?;
 ///
-///     // Wait if necessary.
+///     // Wait some time or for an event before building next block if necessary.
 /// }
 /// # }
 /// ```
@@ -125,7 +125,7 @@ pub async fn build_block_fifo(
         .commit(move |tx| {
             let block_ca = essential_hash::content_addr(&block);
             node_db::insert_block(tx, &block)?;
-            // NOTE: Do we want to immediately finalize? We should wait for L1 conf no?
+            // FIXME: Don't immediately finalize when integrating with the L1.
             node_db::finalize_block(tx, &block_ca)?;
             Ok(())
         })
@@ -209,7 +209,7 @@ async fn record_solution_failures(
         })
         .collect();
 
-    // Acquire a connection and perform deletions in one transaction.
+    // Acquire a connection, record failures and delete old failures in one transaction.
     builder_conn_pool
         .acquire_then(move |h| {
             builder_db::with_tx(h, |tx| {
@@ -256,8 +256,7 @@ pub async fn check_and_apply_solutions(
 /// Validate and attempt to apply the given solution based on the current state provided by
 /// `pre_state` transaction.
 ///
-/// If the solution is valid, returns the `post_state` transaction along with the total utility and
-/// gas spent.
+/// If the solution is valid, returns the `post_state` transaction along with the total gas spent.
 async fn check_and_apply_solution(
     pre_state: state::Transaction,
     solution: &Arc<Solution>,

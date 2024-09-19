@@ -1,9 +1,9 @@
+use crate::state::StateReadError;
 use essential_builder_db as builder_db;
 use essential_check::solution::PredicatesError;
 use essential_node as node;
 use essential_node_db as node_db;
 use essential_types::ContentAddress;
-use crate::state::StateReadError;
 use thiserror::Error;
 
 /// Any errors that might occur within [`build_block_fifo`].
