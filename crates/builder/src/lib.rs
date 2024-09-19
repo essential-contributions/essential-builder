@@ -1,15 +1,13 @@
 //! A block builder implementation for the Essential protocol.
+//!
+//! The primary entrypoint to this crate is the [`build_block_fifo`] function.
 
 use error::{
-    ApplySolutionError, ApplySolutionsError, BuildBlockError, LastBlockHeaderError,
-    SolutionPredicatesError, InvalidSolution,
+    ApplySolutionError, ApplySolutionsError, BuildBlockError, InvalidSolution,
+    LastBlockHeaderError, SolutionPredicatesError,
 };
 use essential_builder_db::{self as builder_db, SolutionFailure};
-use essential_check::{
-    self as check,
-    solution::{CheckPredicateConfig, Utility},
-    state_read_vm::Gas,
-};
+use essential_check::{self as check, solution::CheckPredicateConfig, state_read_vm::Gas};
 use essential_node as node;
 use essential_node_db as node_db;
 use essential_types::{
@@ -36,7 +34,7 @@ pub struct Config {
 /// A summary of building a block, returned by [`build_block_fifo`].
 pub struct SolutionsSummary {
     /// The addresses of all successful solutions.
-    pub succeeded: Vec<(ContentAddress, Utility, Gas)>,
+    pub succeeded: Vec<(ContentAddress, Gas)>,
     /// The addresses of all failed solutions.
     pub failed: Vec<(ContentAddress, SolutionIndex, InvalidSolution)>,
 }
@@ -71,7 +69,7 @@ pub async fn build_block_fifo(
     builder_conn_pool: &builder_db::ConnectionPool,
     node_conn_pool: &node::db::ConnectionPool,
     conf: &Config,
-) -> Result<(), BuildBlockError> {
+) -> Result<SolutionsSummary, BuildBlockError> {
     // Retrieve the last block header.
     let last_block_header_opt = node_conn_pool
         .acquire_then(|h| last_block_header(h))
@@ -148,12 +146,12 @@ pub async fn build_block_fifo(
     let attempted: Vec<_> = summary
         .succeeded
         .iter()
-        .map(|(ca, _util, _gas)| ca.clone())
+        .map(|(ca, _gas)| ca.clone())
         .chain(summary.failed.iter().map(|(ca, _ix, _err)| ca.clone()))
         .collect();
     builder_conn_pool.delete_solutions(attempted).await?;
 
-    Ok(())
+    Ok(summary)
 }
 
 /// Retrieve the last block number and its timestamp.
@@ -244,8 +242,8 @@ pub async fn check_and_apply_solutions(
                 let solution_ix: u32 = ix.try_into().expect("`u32::MAX` below solution limit");
                 failed.push((solution_ca, solution_ix, invalid));
             }
-            Ok((new_node_tx, util, gas)) => {
-                succeeded.push((solution_ca, util, gas));
+            Ok((new_node_tx, gas)) => {
+                succeeded.push((solution_ca, gas));
                 solutions.push(solution);
                 node_tx = new_node_tx;
             }
@@ -264,7 +262,7 @@ async fn check_and_apply_solution(
     pre_state: state::Transaction,
     solution: &Arc<Solution>,
     check_conf: &Arc<CheckPredicateConfig>,
-) -> Result<Result<(state::Transaction, Utility, Gas), InvalidSolution>, ApplySolutionError> {
+) -> Result<Result<(state::Transaction, Gas), InvalidSolution>, ApplySolutionError> {
     // Retrieve the predicates that the solution attempts to solve.
     let predicates = match get_solution_predicates(&pre_state, &solution.data).await {
         Ok(predicates) => predicates,
@@ -287,7 +285,7 @@ async fn check_and_apply_solution(
     .await
     {
         Err(err) => Ok(Err(InvalidSolution::Predicates(err))),
-        Ok((util, gas)) => Ok(Ok((post_state, util, gas))),
+        Ok((_util, gas)) => Ok(Ok((post_state, gas))),
     }
 }
 
