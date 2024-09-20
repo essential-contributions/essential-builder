@@ -21,3 +21,7 @@ rusqlite = { workspace = true }
 rusqlite-pool = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+
+[dev-dependencies]
+essential-node = { workspace = true, features = ["test-utils"] }
+uuid = { workspace = true }

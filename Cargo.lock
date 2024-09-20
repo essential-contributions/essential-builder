@@ -394,6 +394,7 @@ dependencies = [
  "rusqlite-pool",
  "thiserror",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -476,9 +477,11 @@ name = "essential-node"
 version = "0.1.0"
 source = "git+ssh://git@github.com/essential-contributions/essential-node.git#eea3cacdac86232011be1359c0cabbc6a767185c"
 dependencies = [
+ "essential-constraint-asm",
  "essential-hash",
  "essential-node-db",
  "essential-relayer",
+ "essential-state-asm",
  "essential-types",
  "futures",
  "num_cpus",
@@ -1937,6 +1940,15 @@ dependencies = [
  "form_urlencoded",
  "idna",
  "percent-encoding",
+]
+
+[[package]]
+name = "uuid"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81dfa00651efa65069b0b6b651f4aaa31ba9e3c3ce0137aaad053604ee7e0314"
+dependencies = [
+ "getrandom",
 ]
 
 [[package]]

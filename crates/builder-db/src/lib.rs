@@ -272,7 +272,7 @@ pub fn delete_oldest_solution_failures(conn: &Connection, keep_limit: u32) -> ru
     conn.execute(
         sql::delete::OLDEST_SOLUTION_FAILURES,
         named_params! {
-            ":keep_limit": keep_limit as i64,
+            ":keep_limit": keep_limit,
         },
     )?;
     Ok(())
