@@ -190,7 +190,10 @@ async fn build_block_mixed_solutions() {
     }
 
     // Only insert one of the contracts, so that some solutions pass, some fail.
-    node_conn_pool.insert_contract(contracts[0].clone().into(), 0).await.unwrap();
+    node_conn_pool
+        .insert_contract(contracts[0].clone().into(), 0)
+        .await
+        .unwrap();
 
     // Build the block.
     let summary = build_block_fifo(&builder_conn_pool, &node_conn_pool, &builder_config)
