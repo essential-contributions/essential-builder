@@ -15,7 +15,6 @@ essential-node = { workspace = true }
 essential-node-db = { workspace = true }
 essential-types = { workspace = true }
 futures = { workspace = true }
-imbl = { workspace = true }
 num_cpus = { workspace = true }
 rusqlite = { workspace = true }
 rusqlite-pool = { workspace = true }

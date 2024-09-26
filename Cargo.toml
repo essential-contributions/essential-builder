@@ -17,7 +17,6 @@ essential-node = { git = "ssh://git@github.com/essential-contributions/essential
 essential-node-db = { git = "ssh://git@github.com/essential-contributions/essential-node.git" }
 essential-types = "0.2.0"
 futures = "0.3.30"
-imbl = "3.0.0"
 num_cpus = "1.16"
 postcard = { version = "1.0.8", features = ["alloc"] }
 rusqlite = "0.32"
