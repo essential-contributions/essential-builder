@@ -18,7 +18,7 @@ impl Mutations {
         solution_ix: usize,
     ) -> Option<(&SolutionIx, &Value)> {
         let muts = self.0.get(&(contract, key))?;
-        muts.range(0..solution_ix).rev().next()
+        muts.range(0..solution_ix).next_back()
     }
 
     /// Remove mutations associated with the given solution.

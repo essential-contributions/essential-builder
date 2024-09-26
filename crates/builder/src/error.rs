@@ -53,6 +53,7 @@ pub enum LastBlockHeaderError {
 /// Any errors that might occur within `check_solutions`.
 #[derive(Debug, Error)]
 pub enum CheckSolutionsError {
+    /// An error occurred while checking a single solution.
     #[error("an error occurred while attempting to apply a solution: {0}")]
     CheckSolution(#[from] CheckSolutionError),
 }
@@ -60,16 +61,21 @@ pub enum CheckSolutionsError {
 /// Any errors that might occur within `crate::check_solution`.
 #[derive(Debug, Error)]
 pub enum CheckSolutionError {
+    /// A rusqlite error occurred.
     #[error("a rusqlite error occurred: {0}")]
     Rusqlite(#[from] rusqlite::Error),
+    /// A node DB query failed.
     #[error("a node DB query failed: {0}")]
     NodeQuery(#[from] node::db::AcquireThenQueryError),
 }
 
+/// An error occurred while fetching a solution's predicates.
 #[derive(Debug, Error)]
 pub enum SolutionPredicatesError {
+    /// An error occurred while querying the node DB.
     #[error("an error occurred while querying the node DB: {0}")]
     Query(#[from] node::db::AcquireThenQueryError),
+    /// The node DB is missing a required predicate.
     #[error("the node DB is missing a required predicate ({0})")]
     PredicateDoesNotExist(ContentAddress),
 }

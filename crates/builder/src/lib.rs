@@ -15,7 +15,7 @@ use essential_types::{
     solution::{Solution, SolutionData},
     Block, ContentAddress, PredicateAddress,
 };
-use std::{collections::HashMap, ops::Range, sync::Arc, time::Duration};
+use std::{collections::HashMap, num::NonZero, ops::Range, sync::Arc, time::Duration};
 
 pub mod error;
 pub mod state;
@@ -25,11 +25,20 @@ pub mod state;
 pub struct Config {
     /// The maximum number of solution failures to keep in the DB, used to provide feedback to the
     /// submitters.
+    ///
+    /// Defaults to [`Config::DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT`].
     pub solution_failures_to_keep: u32,
-    /// The number of sequential solutions to attempt to check in parallel.
+    /// The maximum number of solutions to attempt to check and include in a block.
+    ///
+    /// Defaults to [`Config::DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK`].
+    pub solution_attempts_per_block: NonZero<u32>,
+    /// The number of sequential solutions to attempt to check in parallel at a time.
+    ///
+    /// If greater than `solution_attempts_per_block`, the `solution_attempts_per_block`
+    /// is used instead.
     ///
     /// If unspecified, uses `num_cpus::get()`.
-    pub parallel_chunk_size: Option<usize>,
+    pub parallel_chunk_size: NonZero<usize>,
     /// Configuration required by [`check::solution::check_predicates`].
     ///
     /// Wrapped in an `Arc` as this is shared between tasks.
@@ -51,13 +60,20 @@ pub type SolutionIndex = u32;
 impl Config {
     /// The default number of solution failures that the builder will retain in its DB.
     pub const DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT: u32 = 10_000;
+    /// The default max number of solutions to attempt to check and include in a block.
+    pub const DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK: u32 = 10_000;
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             solution_failures_to_keep: Self::DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT,
-            parallel_chunk_size: None,
+            solution_attempts_per_block: Self::DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK
+                .try_into()
+                .expect("declared const must be non-zero"),
+            parallel_chunk_size: num_cpus::get()
+                .try_into()
+                .expect("`num_cpus::get()` must be non-zero"),
             check: Default::default(),
         }
     }
@@ -125,19 +141,19 @@ pub async fn build_block_fifo(
 
     // TODO: Produce any "special" block-builder specific solutions here
     // (e.g. updating block number and timestamp in the block contract).
+    let mut solutions = vec![];
 
     // Read out the oldest solutions.
     const MAX_TIMESTAMP_RANGE: Range<Duration> =
         Duration::from_secs(0)..Duration::from_secs(i64::MAX as _);
-    const LIMIT: i64 = 10_000; // TODO: Make this configurable?
-    let solutions = builder_conn_pool
-        .list_solutions(MAX_TIMESTAMP_RANGE, LIMIT)
-        .await?;
-
-    let solutions: Vec<_> = solutions
-        .into_iter()
-        .map(|(ca, solution, _ts)| (ca, Arc::new(solution)))
-        .collect();
+    let limit = i64::from(u32::from(conf.solution_attempts_per_block));
+    solutions.extend(
+        builder_conn_pool
+            .list_solutions(MAX_TIMESTAMP_RANGE, limit)
+            .await?
+            .into_iter()
+            .map(|(ca, solution, _ts)| (ca, Arc::new(solution))),
+    );
 
     // Check all solutions.
     let (solutions, summary) = check_solutions(node_conn_pool.clone(), &solutions, conf).await?;
@@ -226,25 +242,27 @@ async fn check_solutions(
     proposed_solutions: &[(ContentAddress, Arc<Solution>)],
     conf: &Config,
 ) -> Result<(Vec<Arc<Solution>>, SolutionsSummary), CheckSolutionsError> {
-    let chunk_size = conf.parallel_chunk_size.unwrap_or(num_cpus::get());
+    let chunk_size = conf.parallel_chunk_size.into();
     let mut solutions = vec![];
     let mut succeeded = vec![];
     let mut failed = vec![];
     let mut mutations = state::Mutations::default();
 
     // On each pass we process a chunk at a time.
-    // If there's a failure, the next chunk starts after the first failure.
-    let mut ix = 0;
-    while ix < proposed_solutions.len() {
+    // If there's a failure, the next chunk starts after the first failure in this chunk.
+    let mut chunk_start = 0;
+    while chunk_start < proposed_solutions.len() {
         // The range of the chunk of solutions to check on this pass.
-        let end = ix.saturating_add(chunk_size).min(proposed_solutions.len());
-        let range = ix..end;
+        let chunk_end = chunk_start
+            .saturating_add(chunk_size)
+            .min(proposed_solutions.len());
+        let range = chunk_start..chunk_end;
         let chunk = &proposed_solutions[range.clone()];
 
         // Apply the mutations from this chunk of solutions.
         mutations.extend(range.clone().zip(chunk.iter().map(|(_, s)| &**s)));
         // Temporarily move mutations behind a share-able `Arc`.
-        let mutations_arc = Arc::new(std::mem::replace(&mut mutations, Default::default()));
+        let mutations_arc = Arc::new(std::mem::take(&mut mutations));
 
         // Check the chunk in parallel.
         let results = check_solution_chunk(
@@ -266,7 +284,7 @@ async fn check_solutions(
 
         // Process the results.
         for (sol_ix, (res, (sol_ca, sol))) in range.zip(results.into_iter().zip(chunk)) {
-            ix += 1;
+            chunk_start += 1;
             match res {
                 Ok(gas) => {
                     succeeded.push((sol_ca.clone(), gas));
@@ -274,8 +292,7 @@ async fn check_solutions(
                 }
                 // If a solution was invalid, remove its mutations (and those following).
                 Err(invalid) => {
-                    // Remove the mutations of this solution and those following it in the chunk.
-                    for ix in sol_ix..end {
+                    for ix in sol_ix..chunk_end {
                         mutations.remove_solution(ix);
                     }
                     let sol_ix: u32 = sol_ix.try_into().expect("`u32::MAX` below solution limit");
@@ -313,7 +330,7 @@ async fn check_solution_chunk(
 
 /// Validate the given solution.
 ///
-/// If the solution is valid, returns the `post_state` transaction along with the total gas spent.
+/// If the solution is valid, returns the total gas spent.
 async fn check_solution(
     solution: Arc<Solution>,
     pre_state: state::View,
