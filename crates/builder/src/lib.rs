@@ -266,8 +266,8 @@ async fn check_solutions(
 
         // Check the chunk in parallel.
         let results = check_solution_chunk(
-            node_conn_pool.clone(),
-            mutations_arc.clone(),
+            &node_conn_pool,
+            &mutations_arc,
             range.clone().zip(chunk.iter().map(|(_, s)| s.clone())),
             &conf.check,
         )
@@ -306,23 +306,32 @@ async fn check_solutions(
 
 /// Check a sequential chunk of solutions in parallel.
 async fn check_solution_chunk(
-    node_conn_pool: node::db::ConnectionPool,
-    proposed_mutations: Arc<state::Mutations>,
+    node_conn_pool: &node::db::ConnectionPool,
+    proposed_mutations: &Arc<state::Mutations>,
     chunk: impl IntoIterator<Item = (usize, Arc<Solution>)>,
     check_conf: &Arc<check::solution::CheckPredicateConfig>,
 ) -> Result<Vec<Result<Gas, InvalidSolution>>, CheckSolutionsError> {
     // Spawn concurrent checks for each solution.
-    let checks = chunk.into_iter().map(move |(sol_ix, solution)| {
-        let mutations = proposed_mutations.clone();
-        let conn_pool = node_conn_pool.clone();
-        let (pre, post) = state::pre_and_post_view(conn_pool, mutations, sol_ix);
-        check_solution(solution.clone(), pre, post, check_conf.clone())
-    });
+    let checks: tokio::task::JoinSet<_> = chunk
+        .into_iter()
+        .map(move |(sol_ix, solution)| {
+            let mutations = proposed_mutations.clone();
+            let conn_pool = node_conn_pool.clone();
+            let check_conf = check_conf.clone();
+            let (pre, post) = state::pre_and_post_view(conn_pool, mutations, sol_ix);
+            async move {
+                let res = check_solution(solution.clone(), pre, post, check_conf).await;
+                (sol_ix, res)
+            }
+        })
+        .collect();
+
     // Await the results.
-    let results = futures::future::join_all(checks).await;
+    let mut results = checks.join_all().await;
+    results.sort_by_key(|&(ix, _)| ix);
     results
         .into_iter()
-        .map(|res| res.map_err(CheckSolutionsError::CheckSolution))
+        .map(|(_ix, res)| res.map_err(CheckSolutionsError::CheckSolution))
         .collect()
 }
 
@@ -362,19 +371,28 @@ async fn check_solution(
 
 /// Read and return all predicates required the given solution data.
 async fn get_solution_predicates(
-    node_tx: &state::View,
+    view: &state::View,
     solution_data: &[SolutionData],
 ) -> Result<HashMap<ContentAddress, Arc<Predicate>>, SolutionPredicatesError> {
     // Spawn concurrent queries for each predicate.
-    let queries = solution_data
+    let queries: tokio::task::JoinSet<_> = solution_data
         .iter()
         .map(|data| data.predicate_to_solve.predicate.clone())
-        .map(move |pred_ca| node_tx.clone().get_predicate(pred_ca));
+        .enumerate()
+        .map(move |(ix, pred_ca)| {
+            let view = view.clone();
+            async move {
+                let pred = view.get_predicate(pred_ca).await;
+                (ix, pred)
+            }
+        })
+        .collect();
 
     // Collect the results into a map.
     let mut map = HashMap::new();
-    let results = futures::future::join_all(queries).await;
-    for (data, res) in solution_data.iter().zip(results) {
+    let mut results = queries.join_all().await;
+    results.sort_by_key(|(ix, _)| *ix);
+    for (data, (_ix, res)) in solution_data.iter().zip(results) {
         let ca = data.predicate_to_solve.predicate.clone();
         let predicate =
             res?.ok_or_else(|| SolutionPredicatesError::PredicateDoesNotExist(ca.clone()))?;
