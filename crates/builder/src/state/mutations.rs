@@ -1,35 +1,31 @@
 use super::SolutionIx;
 use essential_types::{solution::Solution, ContentAddress, Key, Value};
-use std::{cmp::Ordering, collections::HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 /// A map from each state key to their associated mutations within a chunk of solutions.
 ///
 /// This enables shared, fast access to the latest value for any given key at any point within a
 /// chunk of solutions, with the goal of enabling parallel checking of a proposed solution chunk.
 #[derive(Clone, Default)]
-pub(crate) struct Mutations(HashMap<(ContentAddress, Key), Vec<(SolutionIx, Value)>>);
+pub(crate) struct Mutations(HashMap<(ContentAddress, Key), BTreeMap<SolutionIx, Value>>);
 
 impl Mutations {
-    /// Query the latest state for the given key where the solution index is selected using the
-    /// given comparison function.
-    pub(super) fn query(
+    /// Query the latest mutation for the given key up to (but excluding) the given solution index.
+    pub(super) fn query_excl(
         &self,
         contract: ContentAddress,
         key: Key,
-        cmp: impl Fn(SolutionIx) -> Ordering,
-    ) -> Option<&(SolutionIx, Value)> {
+        solution_ix: usize,
+    ) -> Option<(&SolutionIx, &Value)> {
         let muts = self.0.get(&(contract, key))?;
-        match muts.binary_search_by(|(ix, _)| cmp(*ix)) {
-            Ok(ix) => return muts.get(ix),
-            Err(insert_ix) => muts[0..insert_ix].iter().rev().next(),
-        }
+        muts.range(0..solution_ix).rev().next()
     }
 
     /// Remove mutations associated with the given solution.
     pub(crate) fn remove_solution(&mut self, sol_ix: usize) {
-        self.0
-            .iter_mut()
-            .for_each(|(_, vals)| vals.retain(|(ix, _)| *ix != sol_ix));
+        self.0.values_mut().for_each(|muts| {
+            muts.remove(&sol_ix);
+        });
     }
 }
 
@@ -45,7 +41,7 @@ impl<'a> Extend<(SolutionIx, &'a Solution)> for Mutations {
                     self.0
                         .entry((contract.clone(), mutation.key.clone()))
                         .or_default()
-                        .push((sol_ix, mutation.value.clone()));
+                        .insert(sol_ix, mutation.value.clone());
                 }
             }
         }

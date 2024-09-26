@@ -4,7 +4,7 @@ use essential_check::state_read_vm::StateRead;
 use essential_node as node;
 use essential_types::{predicate::Predicate, ContentAddress, Key, Value, Word};
 use futures::FutureExt;
-use std::{cmp::Ordering, future::Future, pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc};
 
 /// A view into the latest state prior to the solution at the given index.
 ///
@@ -24,10 +24,9 @@ impl View {
         contract: ContentAddress,
         key: Key,
     ) -> Result<Option<Value>, node::db::AcquireThenQueryError> {
-        let cmp = |ix| cmp_excl(ix, self.solution_ix);
-        if let Some((_ix, v)) = self
-            .proposed_mutations
-            .query(contract.clone(), key.clone(), cmp)
+        if let Some((_ix, v)) =
+            self.proposed_mutations
+                .query_excl(contract.clone(), key.clone(), self.solution_ix)
         {
             return Ok(Some(v.clone()));
         }
@@ -94,14 +93,6 @@ pub(crate) fn pre_and_post_view(
             .expect("solution max out of range"),
     };
     (pre, post)
-}
-
-/// Comparison fn for exclusive solution query.
-fn cmp_excl(probe: SolutionIx, sol_ix: SolutionIx) -> Ordering {
-    sol_ix
-        .checked_sub(1)
-        .map(|prev_sol_ix| probe.cmp(&prev_sol_ix))
-        .unwrap_or(Ordering::Less)
 }
 
 /// Calculate the next key.
