@@ -290,11 +290,9 @@ async fn check_solutions(
                     succeeded.push((sol_ca.clone(), gas));
                     solutions.push(sol.clone());
                 }
-                // If a solution was invalid, remove its mutations (and those following).
+                // If a solution was invalid, remove its mutations.
                 Err(invalid) => {
-                    for ix in sol_ix..chunk_end {
-                        mutations.remove_solution(ix);
-                    }
+                    mutations.remove_solution(sol_ix);
                     let sol_ix: u32 = sol_ix.try_into().expect("`u32::MAX` below solution limit");
                     failed.push((sol_ca.clone(), sol_ix, invalid));
                     break;
