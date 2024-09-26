@@ -1,10 +1,10 @@
+use super::{Mutations, SolutionIx};
 use crate::error::StateReadError;
 use essential_check::state_read_vm::StateRead;
 use essential_node as node;
 use essential_types::{predicate::Predicate, ContentAddress, Key, Value, Word};
 use futures::FutureExt;
 use std::{cmp::Ordering, future::Future, pin::Pin, sync::Arc};
-use super::{Mutations, SolutionIx};
 
 /// A view into the latest state prior to the solution at the given index.
 ///

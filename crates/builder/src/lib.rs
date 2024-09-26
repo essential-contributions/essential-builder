@@ -257,7 +257,11 @@ async fn check_solutions(
 
         // Re-take ownership of the mutations.
         // We know this is unique as `check_solution_chunk` has joined.
-        assert_eq!(Arc::strong_count(&mutations_arc), 1, "`Arc<Mutations>` not unique");
+        assert_eq!(
+            Arc::strong_count(&mutations_arc),
+            1,
+            "`Arc<Mutations>` not unique"
+        );
         mutations = Arc::unwrap_or_clone(mutations_arc);
 
         // Process the results.

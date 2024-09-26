@@ -1,6 +1,6 @@
+use super::SolutionIx;
 use essential_types::{solution::Solution, ContentAddress, Key, Value};
 use std::{cmp::Ordering, collections::HashMap};
-use super::SolutionIx;
 
 /// A map from each state key to their associated mutations within a chunk of solutions.
 ///
