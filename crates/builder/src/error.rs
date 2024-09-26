@@ -66,22 +66,6 @@ pub enum CheckSolutionError {
     NodeQuery(#[from] node::db::AcquireThenQueryError),
 }
 
-// /// Any errors that might occur within `check_and_apply_solutions`.
-// #[derive(Debug, Error)]
-// pub enum ApplySolutionsError {
-//     #[error("an error occurred while attempting to apply a solution: {0}")]
-//     ApplySolution(#[from] ApplySolutionError),
-// }
-//
-// /// Any errors that might occur within `crate::check_and_apply_solution`.
-// #[derive(Debug, Error)]
-// pub enum ApplySolutionError {
-//     #[error("a rusqlite error occurred: {0}")]
-//     Rusqlite(#[from] rusqlite::Error),
-//     #[error("a node DB query failed: {0}")]
-//     NodeQuery(#[from] node::db::AcquireThenQueryError),
-// }
-
 #[derive(Debug, Error)]
 pub enum SolutionPredicatesError {
     #[error("an error occurred while querying the node DB: {0}")]
