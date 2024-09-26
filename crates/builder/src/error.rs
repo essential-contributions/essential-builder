@@ -21,7 +21,7 @@ pub enum BuildBlockError {
     NodeRusqlite(#[from] node::db::AcquireThenRusqliteError),
     /// Failed to check and apply a sequence of solutions.
     #[error("Failed to check and apply solutions: {0}")]
-    ApplySolutions(#[from] ApplySolutionsError),
+    CheckSolutions(#[from] CheckSolutionsError),
     /// System time produced a non-monotonic timestamp.
     #[error("System time produced non-monotonic timestamp")]
     TimestampNotMonotonic,
@@ -50,21 +50,37 @@ pub enum LastBlockHeaderError {
     NoTimestampForLastFinalizedBlock,
 }
 
-/// Any errors that might occur within `check_and_apply_solutions`.
+/// Any errors that might occur within `check_solutions`.
 #[derive(Debug, Error)]
-pub enum ApplySolutionsError {
+pub enum CheckSolutionsError {
     #[error("an error occurred while attempting to apply a solution: {0}")]
-    ApplySolution(#[from] ApplySolutionError),
+    CheckSolution(#[from] CheckSolutionError),
 }
 
-/// Any errors that might occur within `crate::check_and_apply_solution`.
+/// Any errors that might occur within `crate::check_solution`.
 #[derive(Debug, Error)]
-pub enum ApplySolutionError {
+pub enum CheckSolutionError {
     #[error("a rusqlite error occurred: {0}")]
     Rusqlite(#[from] rusqlite::Error),
     #[error("a node DB query failed: {0}")]
     NodeQuery(#[from] node::db::AcquireThenQueryError),
 }
+
+// /// Any errors that might occur within `check_and_apply_solutions`.
+// #[derive(Debug, Error)]
+// pub enum ApplySolutionsError {
+//     #[error("an error occurred while attempting to apply a solution: {0}")]
+//     ApplySolution(#[from] ApplySolutionError),
+// }
+//
+// /// Any errors that might occur within `crate::check_and_apply_solution`.
+// #[derive(Debug, Error)]
+// pub enum ApplySolutionError {
+//     #[error("a rusqlite error occurred: {0}")]
+//     Rusqlite(#[from] rusqlite::Error),
+//     #[error("a node DB query failed: {0}")]
+//     NodeQuery(#[from] node::db::AcquireThenQueryError),
+// }
 
 #[derive(Debug, Error)]
 pub enum SolutionPredicatesError {

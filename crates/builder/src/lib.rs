@@ -3,7 +3,7 @@
 //! The primary entrypoint to this crate is the [`build_block_fifo`] function.
 
 use error::{
-    ApplySolutionError, ApplySolutionsError, BuildBlockError, InvalidSolution,
+    BuildBlockError, CheckSolutionError, CheckSolutionsError, InvalidSolution,
     LastBlockHeaderError, SolutionPredicatesError,
 };
 use essential_builder_db::{self as builder_db, SolutionFailure};
@@ -26,6 +26,10 @@ pub struct Config {
     /// The maximum number of solution failures to keep in the DB, used to provide feedback to the
     /// submitters.
     pub solution_failures_to_keep: u32,
+    /// The number of sequential solutions to attempt to check in parallel.
+    ///
+    /// If unspecified, uses `num_cpus::get()`.
+    pub parallel_chunk_size: Option<usize>,
     /// Configuration required by [`check::solution::check_predicates`].
     ///
     /// Wrapped in an `Arc` as this is shared between tasks.
@@ -53,6 +57,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             solution_failures_to_keep: Self::DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT,
+            parallel_chunk_size: None,
             check: Default::default(),
         }
     }
@@ -118,10 +123,7 @@ pub async fn build_block_fifo(
         }
     };
 
-    // Prepare the node DB transaction for state accumulation.
-    let node_tx = state::Transaction::new(node_conn_pool.clone());
-
-    // TODO: Apply any "special" block-builder specific solutions here
+    // TODO: Produce any "special" block-builder specific solutions here
     // (e.g. updating block number and timestamp in the block contract).
 
     // Read out the oldest solutions.
@@ -132,13 +134,13 @@ pub async fn build_block_fifo(
         .list_solutions(MAX_TIMESTAMP_RANGE, LIMIT)
         .await?;
 
-    let solutions = solutions
+    let solutions: Vec<_> = solutions
         .into_iter()
-        .map(|(ca, solution, _ts)| (ca, Arc::new(solution)));
+        .map(|(ca, solution, _ts)| (ca, Arc::new(solution)))
+        .collect();
 
-    // Check and apply all solutions.
-    let output = check_and_apply_solutions(node_tx, solutions, &conf.check).await?;
-    let (node_tx, solutions, summary) = output;
+    // Check all solutions.
+    let (solutions, summary) = check_solutions(node_conn_pool.clone(), &solutions, conf).await?;
 
     // Construct the block.
     let block = Block {
@@ -147,14 +149,16 @@ pub async fn build_block_fifo(
         solutions: solutions.into_iter().map(Arc::unwrap_or_clone).collect(),
     };
 
-    // Commit the state changes, along with the constructed block.
-    let (_output, _conn_pool) = node_tx
-        .commit(move |tx| {
-            let block_ca = essential_hash::content_addr(&block);
-            node_db::insert_block(tx, &block)?;
-            // FIXME: Don't immediately finalize when integrating with the L1.
-            node_db::finalize_block(tx, &block_ca)?;
-            Ok(())
+    // Commit the new block.
+    node_conn_pool
+        .acquire_then(|conn| {
+            builder_db::with_tx(conn, move |tx| {
+                let block_ca = essential_hash::content_addr(&block);
+                node_db::insert_block(tx, &block)?;
+                // FIXME: Don't immediately finalize when integrating with the L1.
+                node_db::finalize_block(tx, &block_ca)?;
+                Ok::<_, rusqlite::Error>(())
+            })
         })
         .await?;
 
@@ -211,56 +215,118 @@ fn last_block_header(
     Ok(Some((number, timestamp)))
 }
 
-/// Check and apply all solutions from the given sequence of proposed solutions.
+/// Check the given sequence of proposed solutions.
 ///
-/// Upon completion, the given transaction will have applied all state mutations proposed by the
-/// solutions included in the returned block.
-pub async fn check_and_apply_solutions(
-    mut node_tx: state::Transaction,
-    proposed_solutions: impl IntoIterator<Item = (ContentAddress, Arc<Solution>)>,
-    check_conf: &Arc<check::solution::CheckPredicateConfig>,
-) -> Result<(state::Transaction, Vec<Arc<Solution>>, SolutionsSummary), ApplySolutionsError> {
+/// We optimistically check `conf.parallel_chunk_size` solutions in parallel at a time.
+/// This gives us the benefit of parallel checking, while capping the number of following solutions
+/// that must be re-checked in the case that one of the solutions earlier in the chunk fails to
+/// validate.
+async fn check_solutions(
+    node_conn_pool: node::db::ConnectionPool,
+    proposed_solutions: &[(ContentAddress, Arc<Solution>)],
+    conf: &Config,
+) -> Result<(Vec<Arc<Solution>>, SolutionsSummary), CheckSolutionsError> {
+    let chunk_size = conf.parallel_chunk_size.unwrap_or(num_cpus::get());
     let mut solutions = vec![];
     let mut succeeded = vec![];
     let mut failed = vec![];
-    for (ix, (solution_ca, solution)) in proposed_solutions.into_iter().enumerate() {
-        match check_and_apply_solution(node_tx.clone(), &solution, check_conf).await? {
-            Err(invalid) => {
-                let solution_ix: u32 = ix.try_into().expect("`u32::MAX` below solution limit");
-                failed.push((solution_ca, solution_ix, invalid));
-            }
-            Ok((new_node_tx, gas)) => {
-                succeeded.push((solution_ca, gas));
-                solutions.push(solution);
-                node_tx = new_node_tx;
+    let mut mutations = state::Mutations::default();
+
+    // On each pass we process a chunk at a time.
+    // If there's a failure, the next chunk starts after the first failure.
+    let mut ix = 0;
+    while ix < proposed_solutions.len() {
+        // The range of the chunk of solutions to check on this pass.
+        let end = ix.saturating_add(chunk_size).min(proposed_solutions.len());
+        let range = ix..end;
+        let chunk = &proposed_solutions[range.clone()];
+
+        // Apply the mutations from this chunk of solutions.
+        mutations.extend(range.clone().zip(chunk.iter().map(|(_, s)| &**s)));
+        // Temporarily move mutations behind a share-able `Arc`.
+        let mutations_arc = Arc::new(std::mem::replace(&mut mutations, Default::default()));
+
+        // Check the chunk in parallel.
+        let results = check_solution_chunk(
+            node_conn_pool.clone(),
+            mutations_arc.clone(),
+            range.clone().zip(chunk.iter().map(|(_, s)| s.clone())),
+            &conf.check,
+        )
+        .await?;
+
+        // Re-take ownership of the mutations.
+        // We know this is unique as `check_solution_chunk` has joined.
+        assert_eq!(Arc::strong_count(&mutations_arc), 1, "`Arc<Mutations>` not unique");
+        mutations = Arc::unwrap_or_clone(mutations_arc);
+
+        // Process the results.
+        for (sol_ix, (res, (sol_ca, sol))) in range.zip(results.into_iter().zip(chunk)) {
+            ix += 1;
+            match res {
+                Ok(gas) => {
+                    succeeded.push((sol_ca.clone(), gas));
+                    solutions.push(sol.clone());
+                }
+                // If a solution was invalid, remove its mutations (and those following).
+                Err(invalid) => {
+                    // Remove the mutations of this solution and those following it in the chunk.
+                    for ix in sol_ix..end {
+                        mutations.remove_solution(ix);
+                    }
+                    let sol_ix: u32 = sol_ix.try_into().expect("`u32::MAX` below solution limit");
+                    failed.push((sol_ca.clone(), sol_ix, invalid));
+                    break;
+                }
             }
         }
     }
     let summary = SolutionsSummary { succeeded, failed };
-    Ok((node_tx, solutions, summary))
+    Ok((solutions, summary))
 }
 
-/// Validate and attempt to apply the given solution based on the current state provided by
-/// `pre_state` transaction.
+/// Check a sequential chunk of solutions in parallel.
+async fn check_solution_chunk(
+    node_conn_pool: node::db::ConnectionPool,
+    proposed_mutations: Arc<state::Mutations>,
+    chunk: impl IntoIterator<Item = (usize, Arc<Solution>)>,
+    check_conf: &Arc<check::solution::CheckPredicateConfig>,
+) -> Result<Vec<Result<Gas, InvalidSolution>>, CheckSolutionsError> {
+    // Spawn concurrent checks for each solution.
+    let checks = chunk.into_iter().map(move |(sol_ix, solution)| {
+        let mutations = proposed_mutations.clone();
+        let conn_pool = node_conn_pool.clone();
+        let (pre, post) = state::pre_and_post_view(conn_pool, mutations, sol_ix);
+        check_solution(solution.clone(), pre, post, check_conf.clone())
+    });
+    // Await the results.
+    let results = futures::future::join_all(checks).await;
+    results
+        .into_iter()
+        .map(|res| res.map_err(CheckSolutionsError::CheckSolution))
+        .collect()
+}
+
+/// Validate the given solution.
 ///
 /// If the solution is valid, returns the `post_state` transaction along with the total gas spent.
-async fn check_and_apply_solution(
-    pre_state: state::Transaction,
-    solution: &Arc<Solution>,
-    check_conf: &Arc<CheckPredicateConfig>,
-) -> Result<Result<(state::Transaction, Gas), InvalidSolution>, ApplySolutionError> {
-    // Retrieve the predicates that the solution attempts to solve.
-    let predicates = match get_solution_predicates(&pre_state, &solution.data).await {
+async fn check_solution(
+    solution: Arc<Solution>,
+    pre_state: state::View,
+    post_state: state::View,
+    check_conf: Arc<CheckPredicateConfig>,
+) -> Result<Result<Gas, InvalidSolution>, CheckSolutionError> {
+    // Retrieve the predicates that the solution attempts to solve from the post-state. This
+    // ensures that the solution has access to contracts submitted as a part of the solution.
+    let predicates = match get_solution_predicates(&post_state, &solution.data).await {
         Ok(predicates) => predicates,
         Err(SolutionPredicatesError::PredicateDoesNotExist(ca)) => {
             return Ok(Err(InvalidSolution::PredicateDoesNotExist(ca)));
         }
-        Err(SolutionPredicatesError::Query(err)) => return Err(ApplySolutionError::NodeQuery(err)),
+        Err(SolutionPredicatesError::Query(err)) => return Err(CheckSolutionError::NodeQuery(err)),
     };
 
     // Create the post-state and check the solution's predicates.
-    let mut post_state = pre_state.clone();
-    post_state.apply_mutations(&solution.data);
     match check::solution::check_predicates(
         &pre_state,
         &post_state,
@@ -271,13 +337,13 @@ async fn check_and_apply_solution(
     .await
     {
         Err(err) => Ok(Err(InvalidSolution::Predicates(err))),
-        Ok((_util, gas)) => Ok(Ok((post_state, gas))),
+        Ok((_util, gas)) => Ok(Ok(gas)),
     }
 }
 
 /// Read and return all predicates required the given solution data.
 async fn get_solution_predicates(
-    node_tx: &state::Transaction,
+    node_tx: &state::View,
     solution_data: &[SolutionData],
 ) -> Result<HashMap<ContentAddress, Arc<Predicate>>, SolutionPredicatesError> {
     // Spawn concurrent queries for each predicate.
