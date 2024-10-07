@@ -166,15 +166,8 @@ impl ConnectionPool {
         &self,
         cas: impl 'static + IntoIterator<Item = ContentAddress> + Send,
     ) -> Result<(), AcquireThenRusqliteError> {
-        self.acquire_then(|h| {
-            with_tx(h, |tx| {
-                for ca in cas {
-                    crate::delete_solution(tx, &ca)?;
-                }
-                Ok(())
-            })
-        })
-        .await
+        self.acquire_then(|h| with_tx(h, |tx| crate::delete_solutions(tx, cas)))
+            .await
     }
 
     /// Acquire a connection and call [`crate::delete_oldest_solution_failures`].

@@ -271,6 +271,19 @@ pub fn delete_solution(conn: &Connection, ca: &ContentAddress) -> rusqlite::Resu
     Ok(())
 }
 
+/// Delete the solutions with the given CAs from the database if they exist.
+///
+/// This also deletes all submissions associated with the specified solutions.
+pub fn delete_solutions(
+    tx: &Transaction,
+    cas: impl IntoIterator<Item = ContentAddress>,
+) -> rusqlite::Result<()> {
+    for ca in cas {
+        crate::delete_solution(tx, &ca)?;
+    }
+    Ok(())
+}
+
 /// Delete the oldest solution failures until the number of stored failures
 /// is less than or equal to `keep_limit`.
 pub fn delete_oldest_solution_failures(conn: &Connection, keep_limit: u32) -> rusqlite::Result<()> {

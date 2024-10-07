@@ -172,28 +172,33 @@ pub async fn build_block_fifo(
     };
     let block_addr = essential_hash::content_addr(&block);
 
-    // Commit the new block.
+    // Commit the new block to the node DB.
+    // FIXME: Don't immediately insert and finalize when integrating with the L1.
     node_conn_pool
         .acquire_then(|conn| {
             builder_db::with_tx(conn, move |tx| {
                 let block_ca = essential_hash::content_addr(&block);
                 node_db::insert_block(tx, &block)?;
-                // FIXME: Don't immediately finalize when integrating with the L1.
-                node_db::finalize_block(tx, &block_ca)?;
-                Ok::<_, rusqlite::Error>(())
+                node_db::finalize_block(tx, &block_ca)
             })
         })
         .await?;
 
     // Record solution failures to the DB for submitter feedback.
-    record_solution_failures(
-        builder_conn_pool,
-        block_num,
-        block_addr,
-        &summary.failed,
-        conf.solution_failures_to_keep,
-    )
-    .await?;
+    let failures: Vec<_> = summary
+        .failed
+        .iter()
+        .map(|(ca, sol_ix, invalid)| {
+            let failure = SolutionFailure {
+                attempt_block_num: block_num,
+                attempt_block_addr: block_addr.clone(),
+                attempt_solution_ix: *sol_ix,
+                err_msg: format!("{invalid}").into(),
+            };
+            (ca.clone(), failure)
+        })
+        .collect();
+    let failures_to_keep = conf.solution_failures_to_keep;
 
     // Delete all attempted solutions, both those that succeeded and those that failed.
     let attempted: Vec<_> = summary
@@ -202,7 +207,15 @@ pub async fn build_block_fifo(
         .map(|(ca, _gas)| ca.clone())
         .chain(summary.failed.iter().map(|(ca, _ix, _err)| ca.clone()))
         .collect();
-    builder_conn_pool.delete_solutions(attempted).await?;
+
+    builder_conn_pool
+        .acquire_then(move |conn| {
+            builder_db::with_tx(conn, |tx| {
+                record_solution_failures(tx, failures, failures_to_keep)?;
+                builder_db::delete_solutions(tx, attempted)
+            })
+        })
+        .await?;
 
     Ok(summary)
 }
@@ -412,43 +425,18 @@ async fn get_solution_predicates(
 }
 
 /// Record solution failures to the DB for submitter feedback.
-async fn record_solution_failures(
-    builder_conn_pool: &builder_db::ConnectionPool,
-    attempt_block_num: BlockNum,
-    attempt_block_addr: ContentAddress,
-    failed: &[(ContentAddress, SolutionIndex, InvalidSolution)],
+fn record_solution_failures(
+    builder_tx: &mut rusqlite::Transaction,
+    failures: Vec<(ContentAddress, SolutionFailure)>,
     failures_to_keep: u32,
-) -> Result<(), builder_db::error::AcquireThenRusqliteError> {
+) -> rusqlite::Result<()> {
     // Nothing to do if no failures.
-    if failed.is_empty() {
+    if failures.is_empty() {
         return Ok(());
     }
-
-    // Construct the solution failures.
-    let failures: Vec<_> = failed
-        .iter()
-        .map(|(ca, sol_ix, invalid)| {
-            let failure = SolutionFailure {
-                attempt_block_num,
-                attempt_block_addr: attempt_block_addr.clone(),
-                attempt_solution_ix: *sol_ix,
-                err_msg: format!("{invalid}").into(),
-            };
-            (ca.clone(), failure)
-        })
-        .collect();
-
     // Acquire a connection, record failures and delete old failures in one transaction.
-    builder_conn_pool
-        .acquire_then(move |h| {
-            builder_db::with_tx(h, |tx| {
-                for (ca, failure) in failures {
-                    builder_db::insert_solution_failure(tx, &ca, failure)?;
-                }
-                builder_db::delete_oldest_solution_failures(tx, failures_to_keep)
-            })?;
-            Ok::<_, rusqlite::Error>(())
-        })
-        .await?;
-    Ok(())
+    for (ca, failure) in failures {
+        builder_db::insert_solution_failure(builder_tx, &ca, failure)?;
+    }
+    builder_db::delete_oldest_solution_failures(builder_tx, failures_to_keep)
 }
