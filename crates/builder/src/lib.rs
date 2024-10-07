@@ -81,7 +81,7 @@ impl Default for Config {
     }
 }
 
-/// Naiively build a block in FIFO order.
+/// Naively build a block in FIFO order.
 ///
 /// Attempts to build a block from the available solutions in the pool in the order in which they
 /// were received. No attempt is made at MEV, and solutions that don't succeed in the immediate
