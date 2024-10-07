@@ -1,5 +1,5 @@
 use super::{Mutations, SolutionIx};
-use crate::error::StateReadError;
+use crate::{error::StateReadError, BlockNum};
 use essential_check::state_read_vm::StateRead;
 use essential_node as node;
 use essential_types::{predicate::Predicate, ContentAddress, Key, Value, Word};
@@ -13,6 +13,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 pub(crate) struct View {
     conn_pool: node::db::ConnectionPool,
     proposed_mutations: Arc<Mutations>,
+    block_num: BlockNum,
     solution_ix: SolutionIx,
 }
 
@@ -30,7 +31,17 @@ impl View {
         {
             return Ok(Some(v.clone()));
         }
-        self.conn_pool.query_state(contract, key).await
+        let block_num: u64 = self
+            .block_num
+            .try_into()
+            .expect("block_num should be `i64`");
+        self.conn_pool
+            .acquire_then(move |conn| {
+                use essential_node_db::finalized::query_state_exclusive_block;
+                let value = query_state_exclusive_block(conn, &contract, &key, block_num)?;
+                Ok(value)
+            })
+            .await
     }
 
     /// Query a range of keys and return the resulting state.
@@ -78,16 +89,19 @@ impl StateRead for View {
 pub(crate) fn pre_and_post_view(
     conn_pool: node::db::ConnectionPool,
     proposed_mutations: Arc<Mutations>,
+    block_num: BlockNum,
     solution_ix: SolutionIx,
 ) -> (View, View) {
     let pre = View {
         conn_pool: conn_pool.clone(),
         proposed_mutations: proposed_mutations.clone(),
+        block_num,
         solution_ix,
     };
     let post = View {
         conn_pool,
         proposed_mutations,
+        block_num,
         solution_ix: solution_ix
             .checked_add(1)
             .expect("solution max out of range"),

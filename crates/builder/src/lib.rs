@@ -57,6 +57,8 @@ pub struct SolutionsSummary {
 /// The index of a solution within a block.
 pub type SolutionIndex = u32;
 
+type BlockNum = i64;
+
 impl Config {
     /// The default number of solution failures that the builder will retain in its DB.
     pub const DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT: u32 = 10_000;
@@ -138,6 +140,9 @@ pub async fn build_block_fifo(
             block_num
         }
     };
+    let block_num: BlockNum = block_number
+        .try_into()
+        .expect("block_number should be `i64`");
 
     // TODO: Produce any "special" block-builder specific solutions here
     // (e.g. updating block number and timestamp in the block contract).
@@ -156,7 +161,8 @@ pub async fn build_block_fifo(
     );
 
     // Check all solutions.
-    let (solutions, summary) = check_solutions(node_conn_pool.clone(), &solutions, conf).await?;
+    let (solutions, summary) =
+        check_solutions(node_conn_pool.clone(), block_num, &solutions, conf).await?;
 
     // Construct the block.
     let block = Block {
@@ -182,9 +188,7 @@ pub async fn build_block_fifo(
     // Record solution failures to the DB for submitter feedback.
     record_solution_failures(
         builder_conn_pool,
-        block_number
-            .try_into()
-            .expect("block_number should be `i64`"),
+        block_num,
         block_addr,
         &summary.failed,
         conf.solution_failures_to_keep,
@@ -241,6 +245,7 @@ fn last_block_header(
 /// validate.
 async fn check_solutions(
     node_conn_pool: node::db::ConnectionPool,
+    block_num: BlockNum,
     proposed_solutions: &[(ContentAddress, Arc<Solution>)],
     conf: &Config,
 ) -> Result<(Vec<Arc<Solution>>, SolutionsSummary), CheckSolutionsError> {
@@ -269,6 +274,7 @@ async fn check_solutions(
         // Check the chunk in parallel.
         let results = check_solution_chunk(
             &node_conn_pool,
+            block_num,
             &mutations_arc,
             range.clone().zip(chunk.iter().map(|(_, s)| s.clone())),
             &conf.check,
@@ -309,6 +315,7 @@ async fn check_solutions(
 /// Check a sequential chunk of solutions in parallel.
 async fn check_solution_chunk(
     node_conn_pool: &node::db::ConnectionPool,
+    block_num: BlockNum,
     proposed_mutations: &Arc<state::Mutations>,
     chunk: impl IntoIterator<Item = (usize, Arc<Solution>)>,
     check_conf: &Arc<check::solution::CheckPredicateConfig>,
@@ -320,7 +327,7 @@ async fn check_solution_chunk(
             let mutations = proposed_mutations.clone();
             let conn_pool = node_conn_pool.clone();
             let check_conf = check_conf.clone();
-            let (pre, post) = state::pre_and_post_view(conn_pool, mutations, sol_ix);
+            let (pre, post) = state::pre_and_post_view(conn_pool, mutations, block_num, sol_ix);
             async move {
                 let res = check_solution(solution.clone(), pre, post, check_conf).await;
                 (sol_ix, res)
@@ -407,7 +414,7 @@ async fn get_solution_predicates(
 /// Record solution failures to the DB for submitter feedback.
 async fn record_solution_failures(
     builder_conn_pool: &builder_db::ConnectionPool,
-    attempt_block_num: i64,
+    attempt_block_num: BlockNum,
     attempt_block_addr: ContentAddress,
     failed: &[(ContentAddress, SolutionIndex, InvalidSolution)],
     failures_to_keep: u32,
