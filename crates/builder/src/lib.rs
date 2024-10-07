@@ -134,7 +134,7 @@ pub async fn build_block_fifo(
             let block_num = last_block_num
                 .checked_add(1)
                 .ok_or(BuildBlockError::BlockNumberOutOfRange)?;
-            if block_timestamp < last_block_ts {
+            if block_timestamp <= last_block_ts {
                 return Err(BuildBlockError::TimestampNotMonotonic);
             }
             block_num
@@ -224,9 +224,9 @@ fn last_block_header(
     // FIXME: Change `get_block_number` to `get_block_header` and include timestamp to avoid
     // needing to list blocks like this.
     let timestamp = {
-        let range = number..i64::MAX as u64;
-        let blocks = node_db::list_blocks(conn, range)?;
         // We expect 1 block, but check for the error case where we get less than or more than 1.
+        let range = number..number.saturating_add(2);
+        let blocks = node_db::list_blocks(conn, range)?;
         let mut blocks: Vec<_> = blocks.into_iter().take(2).collect();
         match blocks.len() {
             1 => blocks.pop().expect("len is 1").timestamp,
