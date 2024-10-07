@@ -166,6 +166,7 @@ fn list_submissions() {
 fn latest_solution_failures() {
     // Generate a test solution and its content address.
     let block = util::test_block(0, Duration::from_secs(0));
+    let block_ca = essential_hash::content_addr(&block);
     let solution = block.solutions[0].clone();
     let ca = essential_hash::content_addr(&solution);
 
@@ -182,16 +183,19 @@ fn latest_solution_failures() {
     let failures = vec![
         SolutionFailure {
             attempt_block_num: 1,
+            attempt_block_addr: block_ca.clone(),
             attempt_solution_ix: 0,
             err_msg: "Failure 1".into(),
         },
         SolutionFailure {
             attempt_block_num: 2,
+            attempt_block_addr: block_ca.clone(),
             attempt_solution_ix: 1,
             err_msg: "Failure 2".into(),
         },
         SolutionFailure {
             attempt_block_num: 3,
+            attempt_block_addr: block_ca,
             attempt_solution_ix: 2,
             err_msg: "Failure 3".into(),
         },

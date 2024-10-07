@@ -164,6 +164,7 @@ pub async fn build_block_fifo(
         timestamp: block_timestamp,
         solutions: solutions.into_iter().map(Arc::unwrap_or_clone).collect(),
     };
+    let block_addr = essential_hash::content_addr(&block);
 
     // Commit the new block.
     node_conn_pool
@@ -184,6 +185,7 @@ pub async fn build_block_fifo(
         block_number
             .try_into()
             .expect("block_number should be `i64`"),
+        block_addr,
         &summary.failed,
         conf.solution_failures_to_keep,
     )
@@ -406,6 +408,7 @@ async fn get_solution_predicates(
 async fn record_solution_failures(
     builder_conn_pool: &builder_db::ConnectionPool,
     attempt_block_num: i64,
+    attempt_block_addr: ContentAddress,
     failed: &[(ContentAddress, SolutionIndex, InvalidSolution)],
     failures_to_keep: u32,
 ) -> Result<(), builder_db::error::AcquireThenRusqliteError> {
@@ -420,6 +423,7 @@ async fn record_solution_failures(
         .map(|(ca, sol_ix, invalid)| {
             let failure = SolutionFailure {
                 attempt_block_num,
+                attempt_block_addr: attempt_block_addr.clone(),
                 attempt_solution_ix: *sol_ix,
                 err_msg: format!("{invalid}").into(),
             };

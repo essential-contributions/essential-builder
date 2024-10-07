@@ -30,9 +30,10 @@ fn insert_solution_submission() {
 #[test]
 fn insert_solution_failure() {
     // Generate a test solution and its content address.
-    let block = util::test_blocks(1);
-    let solution = block[0].solutions[0].clone();
+    let blocks = util::test_blocks(1);
+    let solution = blocks[0].solutions[0].clone();
     let ca = essential_hash::content_addr(&solution);
+    let block_ca = essential_hash::content_addr(&blocks[0]);
 
     // Create an in-memory SQLite database.
     let mut conn = Connection::open_in_memory().unwrap();
@@ -45,6 +46,7 @@ fn insert_solution_failure() {
     // Insert a solution failure.
     let failure = builder_db::SolutionFailure {
         attempt_block_num: 1,
+        attempt_block_addr: block_ca,
         attempt_solution_ix: 0,
         err_msg: "Failed to include solution".into(),
     };

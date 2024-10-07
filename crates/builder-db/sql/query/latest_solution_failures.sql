@@ -1,5 +1,5 @@
 SELECT
-    solution_addr, attempt_block_num, attempt_solution_ix, err_msg
+    solution_addr, attempt_block_num, attempt_block_addr, attempt_solution_ix, err_msg
 FROM
     solution_failure
 WHERE

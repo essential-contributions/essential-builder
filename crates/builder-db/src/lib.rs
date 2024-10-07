@@ -38,8 +38,10 @@ pub mod sql;
 /// solution could not be applied trivially and did not make it into a block.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct SolutionFailure<'a> {
-    /// The block in which the builder attempted to apply the solution.
+    /// The number of the block in which the builder attempted to apply the solution.
     pub attempt_block_num: i64,
+    /// The address of the block in which the builder attempted to apply the solution.
+    pub attempt_block_addr: ContentAddress,
     /// The solution index within the block at which the builder attempted to apply the solution.
     pub attempt_solution_ix: u32,
     /// An error message describing why the builder failed to apply the solution.
@@ -126,6 +128,7 @@ pub fn insert_solution_failure(
         named_params! {
             ":solution_addr": &solution_ca.0,
             ":attempt_block_num": solution_failure.attempt_block_num,
+            ":attempt_block_addr": &solution_failure.attempt_block_addr.0,
             ":attempt_solution_ix": solution_failure.attempt_solution_ix,
             ":err_msg": solution_failure.err_msg.as_bytes(),
         },
@@ -239,11 +242,13 @@ pub fn latest_solution_failures(
         },
         |row| {
             let attempt_block_num: i64 = row.get("attempt_block_num")?;
+            let attempt_block_addr: Hash = row.get("attempt_block_addr")?;
             let attempt_solution_ix: u32 = row.get("attempt_solution_ix")?;
             let err_msg_blob: Vec<u8> = row.get("err_msg")?;
             let err_msg = String::from_utf8_lossy(&err_msg_blob).into_owned();
             Ok(SolutionFailure {
                 attempt_block_num,
+                attempt_block_addr: ContentAddress(attempt_block_addr),
                 attempt_solution_ix,
                 err_msg: err_msg.into(),
             })
