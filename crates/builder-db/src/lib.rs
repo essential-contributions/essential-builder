@@ -9,20 +9,44 @@
 //!
 //! - [`create_tables`]: Creates all required tables in the database.
 //! - [`insert_solution_submission`]: Inserts a solution and its associated submission timestamp.
+//! - [`insert_solution_failure`]: Records a failure to apply a solution to a block.
 //! - [`get_solution`]: Retrieves a solution by its content address.
 //! - [`list_solutions`]: Lists all solutions that were submitted within a given time range.
 //! - [`list_submissions`]: Lists submissions based on timestamp.
-//! - [`delete_solution`]: Deletes a solution and its submissions given the solution's content address.
+//! - [`latest_solution_failures`]: Queries the latest failures for a given solution.
+//! - [`delete_solution`]: Deletes a solution and its submissions given the solution's address.
+//! - [`delete_oldest_solution_failures`]: Deletes the oldest solution failures until the
+//!   stored number is within a given limit.
 
 use error::{DecodeError, QueryError};
 use essential_hash::content_addr;
 use essential_types::{solution::Solution, ContentAddress, Hash};
+#[cfg(feature = "pool")]
+pub use pool::ConnectionPool;
 use rusqlite::{named_params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, time::Duration};
 
 pub mod error;
+#[cfg(feature = "pool")]
+pub mod pool;
 pub mod sql;
+
+/// A failed attempt at applying a solution at a particular location within a particular block.
+///
+/// The builder stores these in order to provide solution submitters feedback in the case that a
+/// solution could not be applied trivially and did not make it into a block.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub struct SolutionFailure<'a> {
+    /// The number of the block in which the builder attempted to apply the solution.
+    pub attempt_block_num: i64,
+    /// The address of the block in which the builder attempted to apply the solution.
+    pub attempt_block_addr: ContentAddress,
+    /// The solution index within the block at which the builder attempted to apply the solution.
+    pub attempt_solution_ix: u32,
+    /// An error message describing why the builder failed to apply the solution.
+    pub err_msg: std::borrow::Cow<'a, str>,
+}
 
 /// Encodes the given value into a blob.
 ///
@@ -85,6 +109,30 @@ pub fn insert_solution_submission(
         },
     )?;
 
+    Ok(())
+}
+
+/// Record a failure to include a solution in a block.
+///
+/// We only record that a failure occurred, the block number, solution index at which the failure
+/// occurred, and a basic error message that can be returned to the submitter. If the user or
+/// application requires more detailed information about the failure, the block number and solution
+/// index should be enough to reconstruct the failure with a synced node.
+pub fn insert_solution_failure(
+    conn: &Connection,
+    solution_ca: &ContentAddress,
+    solution_failure: SolutionFailure,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        sql::insert::SOLUTION_FAILURE,
+        named_params! {
+            ":solution_addr": &solution_ca.0,
+            ":attempt_block_num": solution_failure.attempt_block_num,
+            ":attempt_block_addr": &solution_failure.attempt_block_addr.0,
+            ":attempt_solution_ix": solution_failure.attempt_solution_ix,
+            ":err_msg": solution_failure.err_msg.as_bytes(),
+        },
+    )?;
     Ok(())
 }
 
@@ -175,6 +223,40 @@ pub fn list_submissions(
     rows.collect()
 }
 
+/// Query the latest solution failures for a given solution content address.
+///
+/// Results are ordered by block number and solution index in descending order.
+///
+/// Returns at most `limit` failures.
+pub fn latest_solution_failures(
+    conn: &Connection,
+    ca: &ContentAddress,
+    limit: u32,
+) -> rusqlite::Result<Vec<SolutionFailure<'static>>> {
+    let ca_blob = &ca.0;
+    let mut stmt = conn.prepare(sql::query::LATEST_SOLUTION_FAILURES)?;
+    let rows = stmt.query_map(
+        named_params! {
+            ":solution_addr": ca_blob,
+            ":limit": limit,
+        },
+        |row| {
+            let attempt_block_num: i64 = row.get("attempt_block_num")?;
+            let attempt_block_addr: Hash = row.get("attempt_block_addr")?;
+            let attempt_solution_ix: u32 = row.get("attempt_solution_ix")?;
+            let err_msg_blob: Vec<u8> = row.get("err_msg")?;
+            let err_msg = String::from_utf8_lossy(&err_msg_blob).into_owned();
+            Ok(SolutionFailure {
+                attempt_block_num,
+                attempt_block_addr: ContentAddress(attempt_block_addr),
+                attempt_solution_ix,
+                err_msg: err_msg.into(),
+            })
+        },
+    )?;
+    rows.collect()
+}
+
 /// Delete the solution with the given CA from the database if it exists.
 ///
 /// This also deletes all submissions associated with the specified solution.
@@ -187,4 +269,44 @@ pub fn delete_solution(conn: &Connection, ca: &ContentAddress) -> rusqlite::Resu
         },
     )?;
     Ok(())
+}
+
+/// Delete the solutions with the given CAs from the database if they exist.
+///
+/// This also deletes all submissions associated with the specified solutions.
+pub fn delete_solutions(
+    tx: &Transaction,
+    cas: impl IntoIterator<Item = ContentAddress>,
+) -> rusqlite::Result<()> {
+    for ca in cas {
+        crate::delete_solution(tx, &ca)?;
+    }
+    Ok(())
+}
+
+/// Delete the oldest solution failures until the number of stored failures
+/// is less than or equal to `keep_limit`.
+pub fn delete_oldest_solution_failures(conn: &Connection, keep_limit: u32) -> rusqlite::Result<()> {
+    conn.execute(
+        sql::delete::OLDEST_SOLUTION_FAILURES,
+        named_params! {
+            ":keep_limit": keep_limit,
+        },
+    )?;
+    Ok(())
+}
+
+/// Short-hand for constructing a transaction, providing it as an argument to
+/// the given function, then committing the transaction before returning.
+pub fn with_tx<T, E>(
+    conn: &mut rusqlite::Connection,
+    f: impl FnOnce(&mut Transaction) -> Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<rusqlite::Error>,
+{
+    let mut tx = conn.transaction()?;
+    let out = f(&mut tx)?;
+    tx.commit()?;
+    Ok(out)
 }

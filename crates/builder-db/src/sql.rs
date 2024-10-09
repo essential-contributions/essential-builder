@@ -21,17 +21,23 @@ macro_rules! decl_const_sql_str {
 pub mod create {
     decl_const_sql_str!(SOLUTION, "create/solution.sql");
     decl_const_sql_str!(SUBMISSION, "create/submission.sql");
+    decl_const_sql_str!(SOLUTION_FAILURE, "create/solution_failure.sql");
 }
 
 /// Statements for deleting rows from tables.
 pub mod delete {
     decl_const_sql_str!(SOLUTION, "delete/solution.sql");
+    decl_const_sql_str!(
+        OLDEST_SOLUTION_FAILURES,
+        "delete/oldest_solution_failures.sql"
+    );
 }
 
 /// Statements for inserting rows into the tables.
 pub mod insert {
     decl_const_sql_str!(SOLUTION, "insert/solution.sql");
     decl_const_sql_str!(SUBMISSION, "insert/submission.sql");
+    decl_const_sql_str!(SOLUTION_FAILURE, "insert/solution_failure.sql");
 }
 
 /// Statements for making queries.
@@ -39,6 +45,10 @@ pub mod query {
     decl_const_sql_str!(GET_SOLUTION, "query/get_solution.sql");
     decl_const_sql_str!(LIST_SOLUTIONS, "query/list_solutions.sql");
     decl_const_sql_str!(LIST_SUBMISSIONS, "query/list_submissions.sql");
+    decl_const_sql_str!(
+        LATEST_SOLUTION_FAILURES,
+        "query/latest_solution_failures.sql"
+    );
 }
 
 pub mod table {
@@ -61,7 +71,8 @@ pub mod table {
 
     pub const SOLUTION: Table = Table::new("solution", create::SOLUTION);
     pub const SUBMISSION: Table = Table::new("submission", create::SUBMISSION);
+    pub const SOLUTION_FAILURE: Table = Table::new("solution_failure", create::SOLUTION_FAILURE);
 
     /// All tables in a list. Useful for initialisation and testing.
-    pub const ALL: &[Table] = &[SOLUTION, SUBMISSION];
+    pub const ALL: &[Table] = &[SOLUTION, SUBMISSION, SOLUTION_FAILURE];
 }

@@ -8,4 +8,19 @@ homepage.workspace = true
 repository.workspace = true
 
 [dependencies]
+essential-check = { workspace = true }
+essential-builder-db = { workspace = true }
+essential-hash = { workspace = true }
 essential-node = { workspace = true }
+essential-node-db = { workspace = true }
+essential-types = { workspace = true }
+futures = { workspace = true }
+num_cpus = { workspace = true }
+rusqlite = { workspace = true }
+rusqlite-pool = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+essential-node = { workspace = true, features = ["test-utils"] }
+uuid = { workspace = true }

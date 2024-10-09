@@ -9,7 +9,14 @@ repository.workspace = true
 [dependencies]
 essential-hash = { workspace = true }
 essential-types = { workspace = true }
+num_cpus = { workspace = true, optional = true }
 postcard = { workspace = true }
 rusqlite = { workspace = true }
+rusqlite-pool = { workspace = true, optional = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, optional = true }
+
+[features]
+default = ["pool"]
+pool = ["num_cpus", "rusqlite-pool", "rusqlite-pool/tokio", "tokio"]
