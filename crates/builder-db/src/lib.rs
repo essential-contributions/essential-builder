@@ -84,7 +84,7 @@ pub fn insert_solution_submission(
     tx: &Transaction,
     solution: &Solution,
     timestamp: Duration,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<ContentAddress> {
     // Insert the solution (or ignore if exists).
     let ca = content_addr(solution);
     let ca_blob = &ca.0;
@@ -109,7 +109,7 @@ pub fn insert_solution_submission(
         },
     )?;
 
-    Ok(())
+    Ok(ca)
 }
 
 /// Record a failure to include a solution in a block.

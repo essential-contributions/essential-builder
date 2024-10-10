@@ -94,7 +94,7 @@ impl ConnectionPool {
         &self,
         solution: Arc<Solution>,
         timestamp: Duration,
-    ) -> Result<(), AcquireThenRusqliteError> {
+    ) -> Result<ContentAddress, AcquireThenRusqliteError> {
         self.acquire_then(move |h| {
             with_tx(h, |tx| {
                 crate::insert_solution_submission(tx, &solution, timestamp)
