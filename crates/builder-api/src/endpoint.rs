@@ -1,16 +1,12 @@
 //! Provides a small module for each endpoint with associated `PATH` and `handler`.
 
 use axum::{
-    extract::{Path, Query, State},
-    response::{
-        sse::{self, Sse},
-        IntoResponse,
-    },
+    extract::{Path, State},
+    response::IntoResponse,
     Json,
 };
 use essential_builder_db as db;
-use essential_types::{ContentAddress, Solution};
-use serde::Deserialize;
+use essential_types::{ContentAddress, solution::Solution};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -21,7 +17,14 @@ pub enum Error {
     HexDecode(#[from] hex::FromHexError),
     #[error("DB query failed: {0}")]
     ConnPoolRusqlite(#[from] db::error::AcquireThenRusqliteError),
+    #[error("{0}")]
+    SystemTime(#[from] SystemTimeError),
 }
+
+/// The system time returned a timestamp that preceded `UNIX_EPOCH`.
+#[derive(Debug, Error)]
+#[error("system time preceded `UNIX_EPOCH`")]
+pub struct SystemTimeError;
 
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
@@ -31,6 +34,9 @@ impl IntoResponse for Error {
                 (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
             }
             Error::HexDecode(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+            Error::SystemTime(e) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+            }
         }
     }
 }
@@ -41,9 +47,31 @@ pub mod health_check {
     pub async fn handler() {}
 }
 
-/// The `get-predicate` get endpoint.
+/// The `/latest_solution_failures` get endpoint.
 ///
-/// Takes a contract content address (encoded as hex) as a path parameter.
+/// Takes a solution content address (encoded as hex) and a `limit` as a path parameter and returns
+/// at most `limit` (or [`latest_solution_failures::MAX_LIMIT`] - whatever's lowest) of
+/// the latest failures for the associated solution.
+pub mod latest_solution_failures {
+    use essential_builder_db::SolutionFailure;
+    pub const MAX_LIMIT: u32 = 10;
+    use super::*;
+    pub const PATH: &str = "/latest_solution_failures/:solution_ca/:limit";
+    pub async fn handler(
+        State(state): State<crate::State>,
+        Path((solution_ca, limit)): Path<(String, u32)>,
+    ) -> Result<Json<Vec<SolutionFailure<'static>>>, Error> {
+        let solution_ca: ContentAddress = solution_ca.parse()?;
+        let limit = limit.min(MAX_LIMIT);
+        let failures = state.conn_pool.latest_solution_failures(solution_ca, limit).await?;
+        Ok(Json(failures))
+    }
+}
+
+/// The `/submit-solution` get endpoint.
+///
+/// Takes a JSON-serialized [`Solution`], and responds with its [`ContentAddress`] upon
+/// successfully adding the solution to the solution pool.
 pub mod submit_solution {
     use super::*;
     pub const PATH: &str = "/submit-solution";
@@ -52,7 +80,7 @@ pub mod submit_solution {
         Json(solution): Json<Solution>,
     ) -> Result<Json<ContentAddress>, Error> {
         let solution = Arc::new(solution);
-        let timestamp = now_timestamp();
+        let timestamp = now_timestamp()?;
         let solution_ca = state
             .conn_pool
             .insert_solution_submission(solution, timestamp)
@@ -61,7 +89,9 @@ pub mod submit_solution {
     }
 }
 
-/// Get the current moment in time as a `Duration` since the unix epoch.
-fn now_timestamp() -> std::time::Duration {
-    todo!()
+/// Get the current moment in time as a `Duration` since `UNIX_EPOCH`.
+fn now_timestamp() -> Result<std::time::Duration, SystemTimeError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| SystemTimeError)
 }

@@ -65,7 +65,7 @@ async fn build_block_all_solutions_succeed() {
         builder_conn_pool
             .insert_solution_submission(solution.clone(), submission_timestamp)
             .await
-            .unwrap()
+            .unwrap();
     }
 
     // Build the block.

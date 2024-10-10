@@ -44,6 +44,15 @@ impl ConnectionPool {
         Ok(Self(new_conn_pool(conf)?))
     }
 
+    /// Create the connection pool from the given configuration and ensure the DB tables have been
+    /// created if they do not already exist before returning.
+    pub fn with_tables(conf: &Config) -> rusqlite::Result<Self> {
+        let conn_pool = Self::new(conf)?;
+        let mut conn = conn_pool.try_acquire().unwrap();
+        with_tx(&mut conn, |tx| crate::create_tables(tx))?;
+        Ok(conn_pool)
+    }
+
     /// Acquire a temporary database [`ConnectionHandle`] from the inner pool.
     ///
     /// In the case that all connections are busy, waits for the first available

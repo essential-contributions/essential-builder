@@ -69,21 +69,18 @@ pub async fn serve(router: &Router, listener: &TcpListener, conn_limit: usize) {
 /// ```no_run
 /// # #[tokio::main]
 /// # async fn main() {
-/// # use essential_node::{self as node};
-/// # use essential_node_api as node_api;
-/// let conf = node::db::Config::default();
-/// let db = node::db(&conf).unwrap();
-/// let state = node_api::State {
-///     conn_pool: db,
-///     new_block: None,
-/// };
-/// let router = node_api::router(state);
+/// # use essential_builder_api as builder_api;
+/// # use essential_builder_db as builder_db;
+/// let conf = builder_db::pool::Config::default();
+/// let conn_pool = builder_db::ConnectionPool::with_tables(&conf).unwrap();
+/// let state = builder_api::State { conn_pool };
+/// let router = builder_api::router(state);
 /// let listener = tokio::net::TcpListener::bind("127.0.0.1:3553").await.unwrap();
-/// let conn_limit = node_api::DEFAULT_CONNECTION_LIMIT;
+/// let conn_limit = builder_api::DEFAULT_CONNECTION_LIMIT;
 /// let mut conn_set = tokio::task::JoinSet::new();
 /// // Accept and serve connections.
 /// loop {
-///     node_api::serve_next_conn(&router, &listener, conn_limit, &mut conn_set).await;
+///     builder_api::serve_next_conn(&router, &listener, conn_limit, &mut conn_set).await;
 /// }
 /// # }
 /// ```
@@ -176,6 +173,7 @@ pub fn with_endpoints(router: Router<State>) -> Router<State> {
     use endpoint::*;
     router
         .route(health_check::PATH, get(health_check::handler))
+        .route(latest_solution_failures::PATH, get(latest_solution_failures::handler))
         .route(submit_solution::PATH, post(submit_solution::handler))
 }
 
