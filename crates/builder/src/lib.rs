@@ -189,6 +189,8 @@ pub async fn build_block_fifo(
             })
         })
         .await?;
+    #[cfg(feature = "tracing")]
+    tracing::debug!("Committed and finalized block {}", block_addr);
 
     // Record solution failures to the DB for submitter feedback.
     let failures: Vec<_> = summary
