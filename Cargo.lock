@@ -633,6 +633,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -706,7 +707,7 @@ dependencies = [
 [[package]]
 name = "essential-node"
 version = "0.1.0"
-source = "git+ssh://git@github.com/essential-contributions/essential-node.git#476932213b83a386681c3358bd08a42726d7e708"
+source = "git+ssh://git@github.com/essential-contributions/essential-node.git#b02cf177f177e427672e8a1d4cb6e094b74acdb9"
 dependencies = [
  "essential-check",
  "essential-constraint-asm",
@@ -729,7 +730,7 @@ dependencies = [
 [[package]]
 name = "essential-node-api"
 version = "0.1.0"
-source = "git+ssh://git@github.com/essential-contributions/essential-node.git#476932213b83a386681c3358bd08a42726d7e708"
+source = "git+ssh://git@github.com/essential-contributions/essential-node.git#b02cf177f177e427672e8a1d4cb6e094b74acdb9"
 dependencies = [
  "axum",
  "essential-node",
@@ -750,7 +751,7 @@ dependencies = [
 [[package]]
 name = "essential-node-db"
 version = "0.1.0"
-source = "git+ssh://git@github.com/essential-contributions/essential-node.git#476932213b83a386681c3358bd08a42726d7e708"
+source = "git+ssh://git@github.com/essential-contributions/essential-node.git#b02cf177f177e427672e8a1d4cb6e094b74acdb9"
 dependencies = [
  "essential-hash",
  "essential-node-db-sql",
@@ -765,12 +766,12 @@ dependencies = [
 [[package]]
 name = "essential-node-db-sql"
 version = "0.1.0"
-source = "git+ssh://git@github.com/essential-contributions/essential-node.git#476932213b83a386681c3358bd08a42726d7e708"
+source = "git+ssh://git@github.com/essential-contributions/essential-node.git#b02cf177f177e427672e8a1d4cb6e094b74acdb9"
 
 [[package]]
 name = "essential-relayer"
 version = "0.1.0"
-source = "git+ssh://git@github.com/essential-contributions/essential-node.git#476932213b83a386681c3358bd08a42726d7e708"
+source = "git+ssh://git@github.com/essential-contributions/essential-node.git#b02cf177f177e427672e8a1d4cb6e094b74acdb9"
 dependencies = [
  "essential-hash",
  "essential-node-db",
@@ -1721,8 +1722,8 @@ dependencies = [
 
 [[package]]
 name = "rusqlite-pool"
-version = "0.0.0"
-source = "git+ssh://git@github.com/essential-contributions/essential-node.git#476932213b83a386681c3358bd08a42726d7e708"
+version = "0.1.0"
+source = "git+ssh://git@github.com/essential-contributions/essential-node.git#b02cf177f177e427672e8a1d4cb6e094b74acdb9"
 dependencies = [
  "crossbeam",
  "rusqlite",

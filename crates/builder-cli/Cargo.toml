@@ -1,5 +1,6 @@
 [package]
 name = "essential-builder-cli"
+description = "The Essential Builder CLI"
 version = "0.1.0"
 edition.workspace = true
 authors.workspace = true
@@ -19,13 +20,15 @@ essential-node-api = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
+uuid = { workspace = true }
 
 [features]
 default = ["tracing"]
 tracing = [
     "dep:tracing",
     "dep:tracing-subscriber",
+    "essential-builder/tracing",
+    "essential-builder-api/tracing",
     "essential-node/tracing",
     "essential-node-api/tracing",
-    "essential-builder-api/tracing",
 ]

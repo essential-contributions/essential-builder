@@ -131,7 +131,10 @@ fn default_node_db_path() -> Option<PathBuf> {
 /// Construct the builder's DB config from the parsed args.
 fn builder_db_conf_from_args(args: &Args) -> anyhow::Result<builder_db::pool::Config> {
     let source = match (&args.builder_db, &args.builder_db_path) {
-        (Db::Memory, None) => builder_db::pool::Source::default_memory(),
+        (Db::Memory, None) => {
+            let id = format!("__essential-builder-db-{}", uuid::Uuid::new_v4());
+            builder_db::pool::Source::Memory(id)
+        },
         (_, Some(path)) => builder_db::pool::Source::Path(path.clone()),
         (Db::Persistent, None) => {
             let Some(path) = default_builder_db_path() else {
@@ -148,7 +151,10 @@ fn builder_db_conf_from_args(args: &Args) -> anyhow::Result<builder_db::pool::Co
 /// Construct the node's DB config from the parsed args.
 fn node_db_conf_from_args(args: &Args) -> anyhow::Result<node::db::Config> {
     let source = match (&args.node_db, &args.node_db_path) {
-        (Db::Memory, None) => node::db::Source::default_memory(),
+        (Db::Memory, None) => {
+            let id = format!("__essential-node-db-{}", uuid::Uuid::new_v4());
+            node::db::Source::Memory(id)
+        },
         (_, Some(path)) => node::db::Source::Path(path.clone()),
         (Db::Persistent, None) => {
             let Some(path) = default_node_db_path() else {
@@ -212,7 +218,6 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let node_db = node::db(&node_db_conf)?;
 
     // Run the node API.
-    #[cfg(feature = "tracing")]
     let block_tx = node::BlockTx::new();
     let block_rx = block_tx.new_listener();
     let api_state = node_api::State {

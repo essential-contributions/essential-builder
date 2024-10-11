@@ -15,14 +15,12 @@ async fn test_builder_conn_pool() -> builder_db::ConnectionPool {
     conn_pool
 }
 
-fn test_node() -> node::Node {
-    let node_conf = node::Config {
-        db: node::db::Config {
-            conn_limit: 4,
-            source: node::db::Source::Memory(uuid::Uuid::new_v4().into()),
-        },
+fn test_node_conn_pool() -> node::db::ConnectionPool {
+    let node_conf = node::db::Config {
+        conn_limit: 4,
+        source: node::db::Source::Memory(uuid::Uuid::new_v4().into()),
     };
-    node::Node::new(&node_conf).unwrap()
+    node::db(&node_conf).unwrap()
 }
 
 async fn insert_contracts(node_conn_pool: &node::db::ConnectionPool, contracts: Vec<Contract>) {
@@ -45,8 +43,7 @@ async fn build_block_all_solutions_succeed() {
 
     // Create in-memory connection pools for the builder and node DBs
     let builder_conn_pool = test_builder_conn_pool().await;
-    let node = test_node();
-    let node_conn_pool = node.db();
+    let node_conn_pool = test_node_conn_pool();
 
     // Generate and insert test solutions
     let (blocks, contracts) = util::test_blocks(100);
@@ -92,8 +89,7 @@ async fn build_block_all_solutions_fail() {
 
     // Create in-memory connection pools for the builder and node DBs
     let builder_conn_pool = test_builder_conn_pool().await;
-    let node = test_node();
-    let node_conn_pool = node.db();
+    let node_conn_pool = test_node_conn_pool();
 
     // Generate and insert test solutions that will fail (mock failing conditions)
     let (blocks, _contracts) = util::test_blocks(100);
@@ -147,8 +143,7 @@ async fn build_block_no_solutions() {
 
     // Create in-memory connection pools for the builder and node DBs
     let builder_conn_pool = test_builder_conn_pool().await;
-    let node = test_node();
-    let node_conn_pool = node.db();
+    let node_conn_pool = test_node_conn_pool();
 
     // No solutions are inserted into the builder DB
 
@@ -169,8 +164,7 @@ async fn build_block_mixed_solutions() {
 
     // Create in-memory connection pools for the builder and node DBs
     let builder_conn_pool = test_builder_conn_pool().await;
-    let node = test_node();
-    let node_conn_pool = node.db();
+    let node_conn_pool = test_node_conn_pool();
 
     // Generate and insert test solutions, some of which will fail and others will succeed
     let (blocks, contracts) = util::test_blocks(100);

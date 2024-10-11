@@ -41,7 +41,12 @@ pub enum Source {
 impl ConnectionPool {
     /// Create the connection pool from the given configuration.
     pub fn new(conf: &Config) -> rusqlite::Result<Self> {
-        Ok(Self(new_conn_pool(conf)?))
+        let conn_pool = Self(new_conn_pool(conf)?);
+        if let Source::Path(_) = conf.source {
+            let conn = conn_pool.try_acquire().expect("pool must have at least one connection");
+            conn.pragma_update(None, "journal_mode", "wal")?;
+        }
+        Ok(conn_pool)
     }
 
     /// Create the connection pool from the given configuration and ensure the DB tables have been
@@ -260,10 +265,17 @@ fn new_conn_pool(conf: &Config) -> rusqlite::Result<AsyncConnectionPool> {
 
 /// Create a new connection given a DB source.
 fn new_conn(source: &Source) -> rusqlite::Result<rusqlite::Connection> {
-    match source {
+    let conn = match source {
         Source::Memory(id) => new_mem_conn(id),
-        Source::Path(p) => rusqlite::Connection::open(p),
-    }
+        Source::Path(p) => {
+            let conn = rusqlite::Connection::open(p)?;
+            conn.pragma_update(None, "trusted_schema", false)?;
+            conn.pragma_update(None, "synchronous", 1)?;
+            Ok(conn)
+        }
+    }?;
+    conn.pragma_update(None, "foreign_keys", true)?;
+    Ok(conn)
 }
 
 /// Create an in-memory connection with the given ID
