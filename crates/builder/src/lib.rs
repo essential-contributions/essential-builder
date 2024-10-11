@@ -64,6 +64,13 @@ impl Config {
     pub const DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT: u32 = 10_000;
     /// The default max number of solutions to attempt to check and include in a block.
     pub const DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK: u32 = 10_000;
+
+    /// The default number of sequential solutions to attempt to check in parallel.
+    pub fn default_parallel_chunk_size() -> NonZero<usize> {
+        num_cpus::get()
+            .try_into()
+            .expect("`num_cpus::get()` must be non-zero")
+    }
 }
 
 impl Default for Config {
@@ -73,9 +80,7 @@ impl Default for Config {
             solution_attempts_per_block: Self::DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK
                 .try_into()
                 .expect("declared const must be non-zero"),
-            parallel_chunk_size: num_cpus::get()
-                .try_into()
-                .expect("`num_cpus::get()` must be non-zero"),
+            parallel_chunk_size: Self::default_parallel_chunk_size(),
             check: Default::default(),
         }
     }

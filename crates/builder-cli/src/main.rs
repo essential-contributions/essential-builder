@@ -3,12 +3,11 @@ use clap::{Parser, ValueEnum};
 use essential_builder::{self as builder, build_block_fifo};
 use essential_builder_api as builder_api;
 use essential_builder_db as builder_db;
+use essential_check::solution::CheckPredicateConfig;
 use essential_node as node;
 use essential_node_api as node_api;
 use std::{
-    net::{SocketAddr, SocketAddrV4},
-    path::PathBuf,
-    time::{Duration, Instant},
+    net::{SocketAddr, SocketAddrV4}, num::NonZero, path::PathBuf, time::Duration
 };
 
 /// The Essential Builder CLI.
@@ -24,6 +23,27 @@ struct Args {
     /// L1 block time.
     #[arg(long, default_value_t = DEFAULT_BLOCK_INTERVAL_MS)]
     block_interval_ms: u32,
+    /// The maximum number of solution failures to keep in the DB, used to provide feedback to the
+    /// submitters.
+    #[arg(long, default_value_t = builder::Config::DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT)]
+    solution_failures_to_keep: u32,
+    /// The maximum number of solutions to attempt to check and include in a block.
+    #[arg(long, default_value_t = NonZero::new(builder::Config::DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK).expect("declared const must be non-zero"))]
+    solution_attempts_per_block: NonZero<u32>,
+    /// The number of sequential solutions to attempt to check in parallel at a time.
+    ///
+    /// If greater than `solution-attempts-per-block`, the `solution-attempts-per-block`
+    /// is used instead.
+    ///
+    /// If unspecified, uses `num_cpus::get()`.
+    #[arg(long, default_value_t = builder::Config::default_parallel_chunk_size())]
+    parallel_chunk_size: NonZero<usize>,
+    /// Whether or not to wait and collect all failures during solution checking after a single
+    /// state read or constraint fails.
+    ///
+    /// Potentially useful for debugging or testing tools.
+    #[arg(long)]
+    solution_check_collects_all_failures: bool,
 
     // ----- builder API -----
     /// The address to bind to for the builder API's TCP listener.
@@ -144,7 +164,14 @@ fn node_db_conf_from_args(args: &Args) -> anyhow::Result<node::db::Config> {
 
 /// Construct the builder's block-building config from the parsed args.
 fn builder_conf_from_args(args: &Args) -> anyhow::Result<builder::Config> {
-    todo!()
+    Ok(builder::Config {
+        solution_failures_to_keep: args.solution_failures_to_keep,
+        solution_attempts_per_block: args.solution_attempts_per_block,
+        parallel_chunk_size: args.parallel_chunk_size,
+        check: std::sync::Arc::new(CheckPredicateConfig {
+            collect_all_failures: args.solution_check_collects_all_failures,
+        }),
+    })
 }
 
 #[cfg(feature = "tracing")]
@@ -163,7 +190,7 @@ async fn main() {
     let args = Args::parse();
     if let Err(_err) = run(args).await {
         #[cfg(feature = "tracing")]
-        tracing::error!("{_err}");
+        tracing::error!("{_err:?}");
     }
 }
 
@@ -182,9 +209,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         tracing::debug!("Node DB config:\n{:#?}", node_db_conf);
         tracing::info!("Initializing node DB");
     }
-    let node_conf = node::Config { db: node_db_conf };
-    let node = node::Node::new(&node_conf)?;
-    let node_db = node.db();
+    let node_db = node::db(&node_db_conf)?;
 
     // Run the node API.
     #[cfg(feature = "tracing")]
@@ -195,10 +220,10 @@ async fn run(args: Args) -> anyhow::Result<()> {
         conn_pool: node_db.clone(),
     };
     let router = node_api::router(api_state);
-    let listener = tokio::net::TcpListener::bind(args.bind_address).await?;
+    let listener = tokio::net::TcpListener::bind(args.node_api_bind_address).await?;
     #[cfg(feature = "tracing")]
     tracing::info!("Starting node API server at {}", listener.local_addr()?);
-    let api = node_api::serve(&router, &listener, args.node_api_tcp_conn_limit);
+    let node_api = node_api::serve(&router, &listener, args.node_api_tcp_conn_limit);
 
     // Initialize the builder DB.
     let builder_db_conf = builder_db_conf_from_args(&args)?;
@@ -214,10 +239,10 @@ async fn run(args: Args) -> anyhow::Result<()> {
         conn_pool: builder_db.clone(),
     };
     let router = builder_api::router(api_state);
-    let listener = tokio::net::TcpListener::bind(args.bind_address).await?;
+    let listener = tokio::net::TcpListener::bind(args.builder_api_bind_address).await?;
     #[cfg(feature = "tracing")]
     tracing::info!("Starting builder API server at {}", listener.local_addr()?);
-    let api = builder_api::serve(&router, &listener, args.builder_api_tcp_conn_limit);
+    let builder_api = builder_api::serve(&router, &listener, args.builder_api_tcp_conn_limit);
 
     // Run the block builder.
     let builder_conf = builder_conf_from_args(&args)?;
@@ -233,13 +258,14 @@ async fn run(args: Args) -> anyhow::Result<()> {
     // Select the first future to complete to close.
     let ctrl_c = tokio::signal::ctrl_c();
     tokio::select! {
-        _ = api => {},
+        _ = builder_api => {},
+        _ = node_api => (),
         _ = ctrl_c => {},
         res = builder => res.context("Critical error during block building")?,
     }
 
     builder_db.close().map_err(|e| anyhow::anyhow!("{e}"))?;
-    node.close().map_err(|e| anyhow::anyhow!("{e}"))?;
+    node_db.close().map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
 }
 
@@ -254,7 +280,7 @@ async fn run_builder(
     let mut interval = tokio::time::interval(block_interval);
     loop {
         interval.tick().await;
-        let summary = build_block_fifo(&builder_conn_pool, &node_conn_pool, &conf).await?;
+        let _summary = build_block_fifo(&builder_conn_pool, &node_conn_pool, &conf).await?;
         block_tx.notify();
     }
 }

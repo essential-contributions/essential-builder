@@ -13,6 +13,7 @@ dirs = { workspace = true }
 essential-builder = { workspace = true }
 essential-builder-api = { workspace = true }
 essential-builder-db = { workspace = true }
+essential-check = { workspace = true }
 essential-node = { workspace = true }
 essential-node-api = { workspace = true }
 tokio = { workspace = true }
