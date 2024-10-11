@@ -6,7 +6,7 @@ use axum::{
     Json,
 };
 use essential_builder_db as db;
-use essential_types::{ContentAddress, solution::Solution};
+use essential_types::{solution::Solution, ContentAddress};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -63,7 +63,10 @@ pub mod latest_solution_failures {
     ) -> Result<Json<Vec<SolutionFailure<'static>>>, Error> {
         let solution_ca: ContentAddress = solution_ca.parse()?;
         let limit = limit.min(MAX_LIMIT);
-        let failures = state.conn_pool.latest_solution_failures(solution_ca, limit).await?;
+        let failures = state
+            .conn_pool
+            .latest_solution_failures(solution_ca, limit)
+            .await?;
         Ok(Json(failures))
     }
 }

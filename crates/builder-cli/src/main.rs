@@ -7,7 +7,10 @@ use essential_check::solution::CheckPredicateConfig;
 use essential_node as node;
 use essential_node_api as node_api;
 use std::{
-    net::{SocketAddr, SocketAddrV4}, num::NonZero, path::PathBuf, time::Duration
+    net::{SocketAddr, SocketAddrV4},
+    num::NonZero,
+    path::PathBuf,
+    time::Duration,
 };
 
 /// The Essential Builder CLI.
@@ -134,7 +137,7 @@ fn builder_db_conf_from_args(args: &Args) -> anyhow::Result<builder_db::pool::Co
         (Db::Memory, None) => {
             let id = format!("__essential-builder-db-{}", uuid::Uuid::new_v4());
             builder_db::pool::Source::Memory(id)
-        },
+        }
         (_, Some(path)) => builder_db::pool::Source::Path(path.clone()),
         (Db::Persistent, None) => {
             let Some(path) = default_builder_db_path() else {
@@ -154,7 +157,7 @@ fn node_db_conf_from_args(args: &Args) -> anyhow::Result<node::db::Config> {
         (Db::Memory, None) => {
             let id = format!("__essential-node-db-{}", uuid::Uuid::new_v4());
             node::db::Source::Memory(id)
-        },
+        }
         (_, Some(path)) => node::db::Source::Path(path.clone()),
         (Db::Persistent, None) => {
             let Some(path) = default_node_db_path() else {

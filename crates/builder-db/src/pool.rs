@@ -1,7 +1,9 @@
 //! Provides an async-friendly [`ConnectionPool`] implementation.
 
 use crate::{
-    error::{AcquireThenError, AcquireThenQueryError, AcquireThenRusqliteError, ConnectionCloseErrors},
+    error::{
+        AcquireThenError, AcquireThenQueryError, AcquireThenRusqliteError, ConnectionCloseErrors,
+    },
     with_tx,
 };
 use essential_types::{solution::Solution, ContentAddress};
@@ -43,7 +45,9 @@ impl ConnectionPool {
     pub fn new(conf: &Config) -> rusqlite::Result<Self> {
         let conn_pool = Self(new_conn_pool(conf)?);
         if let Source::Path(_) = conf.source {
-            let conn = conn_pool.try_acquire().expect("pool must have at least one connection");
+            let conn = conn_pool
+                .try_acquire()
+                .expect("pool must have at least one connection");
             conn.pragma_update(None, "journal_mode", "wal")?;
         }
         Ok(conn_pool)

@@ -4,7 +4,10 @@
 //!
 //! To serve the builder API, construct a [`router`], a [`TcpListener`] and call [`serve`].
 
-use axum::{routing::{get, post}, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use essential_builder_db as db;
 use std::{io, net::SocketAddr};
 use thiserror::Error;
@@ -173,7 +176,10 @@ pub fn with_endpoints(router: Router<State>) -> Router<State> {
     use endpoint::*;
     router
         .route(health_check::PATH, get(health_check::handler))
-        .route(latest_solution_failures::PATH, get(latest_solution_failures::handler))
+        .route(
+            latest_solution_failures::PATH,
+            get(latest_solution_failures::handler),
+        )
         .route(submit_solution::PATH, post(submit_solution::handler))
 }
 
