@@ -112,6 +112,7 @@ impl Default for Config {
 /// }
 /// # }
 /// ```
+#[cfg_attr(feature = "tracing", tracing::instrument("build", skip_all))]
 pub async fn build_block_fifo(
     builder_conn_pool: &builder_db::ConnectionPool,
     node_conn_pool: &node::db::ConnectionPool,
@@ -144,6 +145,9 @@ pub async fn build_block_fifo(
         .try_into()
         .expect("block_number should be `i64`");
 
+    #[cfg(feature = "tracing")]
+    tracing::debug!("Building block {}", block_num);
+
     // TODO: Produce any "special" block-builder specific solutions here
     // (e.g. updating block number and timestamp in the block contract).
     let mut solutions = vec![];
@@ -171,6 +175,8 @@ pub async fn build_block_fifo(
         solutions: solutions.into_iter().map(Arc::unwrap_or_clone).collect(),
     };
     let block_addr = essential_hash::content_addr(&block);
+    #[cfg(feature = "tracing")]
+    tracing::debug!("Built block {}", block_addr);
 
     // Commit the new block to the node DB.
     // FIXME: Don't immediately insert and finalize when integrating with the L1.
@@ -183,6 +189,8 @@ pub async fn build_block_fifo(
             })
         })
         .await?;
+    #[cfg(feature = "tracing")]
+    tracing::debug!("Committed and finalized block {}", block_addr);
 
     // Record solution failures to the DB for submitter feedback.
     let failures: Vec<_> = summary
@@ -310,12 +318,16 @@ async fn check_solutions(
                 Ok(gas) => {
                     succeeded.push((sol_ca.clone(), gas));
                     solutions.push(sol.clone());
+                    #[cfg(feature = "tracing")]
+                    tracing::trace!("Solution check success {}", sol_ca);
                 }
                 // If a solution was invalid, remove its mutations.
                 Err(invalid) => {
                     mutations.remove_solution(sol_ix);
                     let sol_ix: u32 = sol_ix.try_into().expect("`u32::MAX` below solution limit");
                     failed.push((sol_ca.clone(), sol_ix, invalid));
+                    #[cfg(feature = "tracing")]
+                    tracing::trace!("Solution check failure {}", sol_ca);
                     break;
                 }
             }
