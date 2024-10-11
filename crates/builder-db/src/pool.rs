@@ -1,7 +1,7 @@
 //! Provides an async-friendly [`ConnectionPool`] implementation.
 
 use crate::{
-    error::{AcquireThenError, AcquireThenQueryError, AcquireThenRusqliteError},
+    error::{AcquireThenError, AcquireThenQueryError, AcquireThenRusqliteError, ConnectionCloseErrors},
     with_tx,
 };
 use essential_types::{solution::Solution, ContentAddress};
@@ -68,6 +68,16 @@ impl ConnectionPool {
     /// the builder has been closed.
     pub fn try_acquire(&self) -> Result<ConnectionHandle, TryAcquireError> {
         self.0.try_acquire().map(ConnectionHandle)
+    }
+
+    /// Close a connection pool, returning a `ConnectionCloseErrors` in the case of any errors.
+    pub fn close(&self) -> Result<(), ConnectionCloseErrors> {
+        let res = self.0.close();
+        let errs: Vec<_> = res.into_iter().filter_map(Result::err).collect();
+        if !errs.is_empty() {
+            return Err(ConnectionCloseErrors(errs));
+        }
+        Ok(())
     }
 }
 

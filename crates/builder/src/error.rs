@@ -91,7 +91,7 @@ pub enum InvalidSolution {
     Predicates(PredicatesError<StateReadError>),
 }
 
-/// Any errors that might occur in the [`Transaction`][crate::state::Transaction]'s
+/// Any errors that might occur in the [`View`][crate::state::View]'s
 /// [`StateRead`][essential_check::state_read_vm::StateRead] implementation.
 #[derive(Debug, Error)]
 pub enum StateReadError {
