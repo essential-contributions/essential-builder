@@ -285,6 +285,10 @@ async fn run_builder(
     conf: builder::Config,
     block_interval: Duration,
 ) -> anyhow::Result<()> {
+    #[cfg(feature = "tracing")]
+    tracing::info!("Running the block builder");
+    #[cfg(feature = "tracing")]
+    tracing::debug!("Builder config:\n{:#?}", conf);
     let mut interval = tokio::time::interval(block_interval);
     loop {
         interval.tick().await;
