@@ -187,6 +187,6 @@ pub fn with_endpoints(router: Router<State>) -> Router<State> {
 pub fn cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(tower_http::cors::Any)
-        .allow_methods([http::Method::GET, http::Method::OPTIONS])
+        .allow_methods([http::Method::GET, http::Method::OPTIONS, http::Method::POST])
         .allow_headers([http::header::CONTENT_TYPE])
 }
