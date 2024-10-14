@@ -9,14 +9,14 @@ use essential_types::{
 };
 use std::time::Duration;
 
-pub fn test_blocks(n: u64) -> Vec<Block> {
+pub fn test_blocks(n: Word) -> Vec<Block> {
     (0..n)
         .map(|i| test_block(i, Duration::from_secs(i as _)))
         .collect()
 }
 
-pub fn test_block(number: u64, timestamp: Duration) -> Block {
-    let seed = number as i64 * 79;
+pub fn test_block(number: Word, timestamp: Duration) -> Block {
+    let seed = number * 79;
     Block {
         number,
         timestamp,
@@ -68,7 +68,6 @@ pub fn test_predicate(seed: Word) -> Predicate {
     Predicate {
         state_read: test_state_reads(seed),
         constraints: test_constraints(seed),
-        directive: essential_types::predicate::Directive::Satisfy,
     }
 }
 
@@ -86,7 +85,7 @@ pub fn test_constraints(seed: Word) -> Vec<ConstraintBytecode> {
     vec![vec![b; 10]; n]
 }
 
-pub fn get_block_address(i: u64) -> ContentAddress {
+pub fn get_block_address(i: Word) -> ContentAddress {
     content_addr(&Block {
         number: i,
         timestamp: Default::default(),
