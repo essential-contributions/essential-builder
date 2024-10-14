@@ -2,7 +2,6 @@
   "nodes": {
     "essential-node": {
       "inputs": {
-        "essential-server": "essential-server",
         "nixpkgs": [
           "nixpkgs"
         ],
@@ -11,41 +10,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1725334912,
-        "narHash": "sha256-+JucDO//5bYikW3RHY+WJaGJw9g0u+VsZIid65lDdlY=",
-        "ref": "refs/heads/main",
-        "rev": "eea3cacdac86232011be1359c0cabbc6a767185c",
-        "revCount": 25,
-        "type": "git",
-        "url": "ssh://git@github.com/essential-contributions/essential-node"
-      },
-      "original": {
-        "type": "git",
-        "url": "ssh://git@github.com/essential-contributions/essential-node"
-      }
-    },
-    "essential-server": {
-      "inputs": {
-        "nixpkgs": [
-          "essential-node",
-          "nixpkgs"
-        ],
-        "systems": [
-          "essential-node",
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1724386028,
-        "narHash": "sha256-ziImdwfvIVhHyVMA14BgbwwaoFVJww+zKOS93SJoUPo=",
+        "lastModified": 1728638342,
+        "narHash": "sha256-TtUkGxLeya6ziEdz5nrKA2Cj0fipVoKkkkTEeIBxYxg=",
         "owner": "essential-contributions",
-        "repo": "essential-server",
-        "rev": "0a21818d2722ce7475a1627bf543822652e604ed",
+        "repo": "essential-node",
+        "rev": "8db2978b23da4a122483f7e205ee3d6c55613e32",
         "type": "github"
       },
       "original": {
         "owner": "essential-contributions",
-        "repo": "essential-server",
+        "repo": "essential-node",
         "type": "github"
       }
     },

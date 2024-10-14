@@ -11,22 +11,37 @@ homepage = "https://essential.builders/"
 repository = "https://github.com/essential-contributions/essential-builder"
 
 [workspace.dependencies]
+anyhow = "1"
+axum = "0.7.5"
+clap = { version = "4.5", features = ["derive"] }
+dirs = "5"
 essential-check = "0.5.0"
 essential-hash = "0.3.0"
-essential-node = { git = "ssh://git@github.com/essential-contributions/essential-node.git" }
-essential-node-db = { git = "ssh://git@github.com/essential-contributions/essential-node.git" }
+essential-node = "0.1.0"
+essential-node-api = "0.1.0"
+essential-node-db = "0.1.0"
 essential-types = "0.2.0"
 futures = "0.3.30"
+hex = "0.4.3"
+http = "1.1.0"
+hyper = "1.3.1"
+hyper-util = "0.1.7"
 num_cpus = "1.16"
 postcard = { version = "1.0.8", features = ["alloc"] }
+reqwest = { version = "0.12.5", features = ["json", "stream"] }
 rusqlite = "0.32"
-rusqlite-pool = { git = "ssh://git@github.com/essential-contributions/essential-node.git" }
+rusqlite-pool = "0.1.1"
 serde = "1"
+serde_json = "1.0.114"
 thiserror = "1"
 tokio = { version = "1.39.2", features = ["full"] }
+tokio-util = "0.7.11"
+tower = "0.4.13" # Update to 0.5 pending axum tower update
+tower-http = { version = "0.5.2", features = ["cors"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 
 essential-builder = { path = "crates/builder", version = "0.1.0" }
+essential-builder-api = { path = "crates/builder-api", version = "0.1.0" }
 essential-builder-db = { path = "crates/builder-db", version = "0.1.0" }

@@ -64,6 +64,13 @@ impl Config {
     pub const DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT: u32 = 10_000;
     /// The default max number of solutions to attempt to check and include in a block.
     pub const DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK: u32 = 10_000;
+
+    /// The default number of sequential solutions to attempt to check in parallel.
+    pub fn default_parallel_chunk_size() -> NonZero<usize> {
+        num_cpus::get()
+            .try_into()
+            .expect("`num_cpus::get()` must be non-zero")
+    }
 }
 
 impl Default for Config {
@@ -73,9 +80,7 @@ impl Default for Config {
             solution_attempts_per_block: Self::DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK
                 .try_into()
                 .expect("declared const must be non-zero"),
-            parallel_chunk_size: num_cpus::get()
-                .try_into()
-                .expect("`num_cpus::get()` must be non-zero"),
+            parallel_chunk_size: Self::default_parallel_chunk_size(),
             check: Default::default(),
         }
     }
@@ -176,21 +181,34 @@ pub async fn build_block_fifo(
     };
     let block_addr = essential_hash::content_addr(&block);
     #[cfg(feature = "tracing")]
-    tracing::debug!("Built block {}", block_addr);
+    tracing::debug!(
+        "Built block {} with {} solutions at {:?}",
+        block_addr,
+        block.solutions.len(),
+        block.timestamp
+    );
 
-    // Commit the new block to the node DB.
-    // FIXME: Don't immediately insert and finalize when integrating with the L1.
-    node_conn_pool
-        .acquire_then(|conn| {
-            builder_db::with_tx(conn, move |tx| {
-                let block_ca = essential_hash::content_addr(&block);
-                node_db::insert_block(tx, &block)?;
-                node_db::finalize_block(tx, &block_ca)
+    // If the block is empty, notify that we're skipping the block.
+    if block.solutions.is_empty() {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Skipping empty block {}", block_addr);
+
+    // Only insert the block if
+    } else {
+        // Commit the new block to the node DB.
+        // FIXME: Don't immediately insert and finalize when integrating with the L1.
+        node_conn_pool
+            .acquire_then(|conn| {
+                builder_db::with_tx(conn, move |tx| {
+                    let block_ca = essential_hash::content_addr(&block);
+                    node_db::insert_block(tx, &block)?;
+                    node_db::finalize_block(tx, &block_ca)
+                })
             })
-        })
-        .await?;
-    #[cfg(feature = "tracing")]
-    tracing::debug!("Committed and finalized block {}", block_addr);
+            .await?;
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Committed and finalized block {}", block_addr);
+    }
 
     // Record solution failures to the DB for submitter feedback.
     let failures: Vec<_> = summary

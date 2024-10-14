@@ -28,7 +28,7 @@ let
         lib.lists.any (dir: isPathInIncludeDirs dir) includeDirs
     ;
   };
-  crateDir = "${src}/crates/builder";
+  crateDir = "${src}/crates/builder-cli";
   crateTOML = "${crateDir}/Cargo.toml";
   lockFile = "${src}/Cargo.lock";
 in
@@ -37,7 +37,7 @@ rustPlatform.buildRustPackage {
   pname = "essential-builder";
   version = (builtins.fromTOML (builtins.readFile crateTOML)).package.version;
 
-  buildAndTestSubdir = "crates/builder";
+  buildAndTestSubdir = "crates/builder-cli";
 
   OPENSSL_NO_VENDOR = 1;
 

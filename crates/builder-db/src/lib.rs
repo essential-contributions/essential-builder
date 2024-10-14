@@ -36,7 +36,7 @@ pub mod sql;
 ///
 /// The builder stores these in order to provide solution submitters feedback in the case that a
 /// solution could not be applied trivially and did not make it into a block.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct SolutionFailure<'a> {
     /// The number of the block in which the builder attempted to apply the solution.
     pub attempt_block_num: i64,
@@ -84,7 +84,7 @@ pub fn insert_solution_submission(
     tx: &Transaction,
     solution: &Solution,
     timestamp: Duration,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<ContentAddress> {
     // Insert the solution (or ignore if exists).
     let ca = content_addr(solution);
     let ca_blob = &ca.0;
@@ -109,7 +109,7 @@ pub fn insert_solution_submission(
         },
     )?;
 
-    Ok(())
+    Ok(ca)
 }
 
 /// Record a failure to include a solution in a block.

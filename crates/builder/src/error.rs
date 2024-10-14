@@ -40,7 +40,7 @@ pub enum LastBlockHeaderError {
     #[error("A rusqlite error occurred: {0}")]
     Rusqlite(#[from] rusqlite::Error),
     /// A node DB query error occurred.
-    #[error("A node DB query error occurred")]
+    #[error("A node DB query error occurred: {0}")]
     Query(#[from] node_db::QueryError),
     /// The node DB contained no number for the last finalized block.
     #[error("The node DB contained no number for the last finalized block")]
@@ -91,7 +91,7 @@ pub enum InvalidSolution {
     Predicates(PredicatesError<StateReadError>),
 }
 
-/// Any errors that might occur in the [`Transaction`][crate::state::Transaction]'s
+/// Any errors that might occur in the [`View`][crate::state::View]'s
 /// [`StateRead`][essential_check::state_read_vm::StateRead] implementation.
 #[derive(Debug, Error)]
 pub enum StateReadError {

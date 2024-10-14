@@ -1,7 +1,9 @@
 //! Provides an async-friendly [`ConnectionPool`] implementation.
 
 use crate::{
-    error::{AcquireThenError, AcquireThenQueryError, AcquireThenRusqliteError},
+    error::{
+        AcquireThenError, AcquireThenQueryError, AcquireThenRusqliteError, ConnectionCloseErrors,
+    },
     with_tx,
 };
 use essential_types::{solution::Solution, ContentAddress};
@@ -41,7 +43,23 @@ pub enum Source {
 impl ConnectionPool {
     /// Create the connection pool from the given configuration.
     pub fn new(conf: &Config) -> rusqlite::Result<Self> {
-        Ok(Self(new_conn_pool(conf)?))
+        let conn_pool = Self(new_conn_pool(conf)?);
+        if let Source::Path(_) = conf.source {
+            let conn = conn_pool
+                .try_acquire()
+                .expect("pool must have at least one connection");
+            conn.pragma_update(None, "journal_mode", "wal")?;
+        }
+        Ok(conn_pool)
+    }
+
+    /// Create the connection pool from the given configuration and ensure the DB tables have been
+    /// created if they do not already exist before returning.
+    pub fn with_tables(conf: &Config) -> rusqlite::Result<Self> {
+        let conn_pool = Self::new(conf)?;
+        let mut conn = conn_pool.try_acquire().unwrap();
+        with_tx(&mut conn, |tx| crate::create_tables(tx))?;
+        Ok(conn_pool)
     }
 
     /// Acquire a temporary database [`ConnectionHandle`] from the inner pool.
@@ -59,6 +77,16 @@ impl ConnectionPool {
     /// the builder has been closed.
     pub fn try_acquire(&self) -> Result<ConnectionHandle, TryAcquireError> {
         self.0.try_acquire().map(ConnectionHandle)
+    }
+
+    /// Close a connection pool, returning a `ConnectionCloseErrors` in the case of any errors.
+    pub fn close(&self) -> Result<(), ConnectionCloseErrors> {
+        let res = self.0.close();
+        let errs: Vec<_> = res.into_iter().filter_map(Result::err).collect();
+        if !errs.is_empty() {
+            return Err(ConnectionCloseErrors(errs));
+        }
+        Ok(())
     }
 }
 
@@ -94,7 +122,7 @@ impl ConnectionPool {
         &self,
         solution: Arc<Solution>,
         timestamp: Duration,
-    ) -> Result<(), AcquireThenRusqliteError> {
+    ) -> Result<ContentAddress, AcquireThenRusqliteError> {
         self.acquire_then(move |h| {
             with_tx(h, |tx| {
                 crate::insert_solution_submission(tx, &solution, timestamp)
@@ -241,10 +269,17 @@ fn new_conn_pool(conf: &Config) -> rusqlite::Result<AsyncConnectionPool> {
 
 /// Create a new connection given a DB source.
 fn new_conn(source: &Source) -> rusqlite::Result<rusqlite::Connection> {
-    match source {
+    let conn = match source {
         Source::Memory(id) => new_mem_conn(id),
-        Source::Path(p) => rusqlite::Connection::open(p),
-    }
+        Source::Path(p) => {
+            let conn = rusqlite::Connection::open(p)?;
+            conn.pragma_update(None, "trusted_schema", false)?;
+            conn.pragma_update(None, "synchronous", 1)?;
+            Ok(conn)
+        }
+    }?;
+    conn.pragma_update(None, "foreign_keys", true)?;
+    Ok(conn)
 }
 
 /// Create an in-memory connection with the given ID

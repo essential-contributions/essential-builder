@@ -38,3 +38,17 @@ pub enum QueryError {
     #[error("failed to decode: {0}")]
     Decode(#[from] DecodeError),
 }
+
+/// One or more connections failed to close when calling [`crate::pool::ConnectionPool::close`].
+#[derive(Debug, Error)]
+pub struct ConnectionCloseErrors(pub Vec<(rusqlite::Connection, rusqlite::Error)>);
+
+impl core::fmt::Display for ConnectionCloseErrors {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        writeln!(f, "failed to close one or more connections:")?;
+        for (ix, (_conn, err)) in self.0.iter().enumerate() {
+            writeln!(f, "  {ix}: {err}")?;
+        }
+        Ok(())
+    }
+}
