@@ -1,4 +1,4 @@
-# essential-builder-cli
+# essential-builder-db
 
 [![Crates.io][crates-badge]][crates-url]
 [![Documentation][docs-badge]][docs-url]
