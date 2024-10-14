@@ -1,10 +1,11 @@
 [package]
 name = "essential-builder-cli"
-description = "The Essential Builder CLI"
+description = "The Essential builder CLI"
 version = "0.1.0"
-edition.workspace = true
 authors.workspace = true
+edition.workspace = true
 homepage.workspace = true
+license.workspace = true
 repository.workspace = true
 
 [[bin]]

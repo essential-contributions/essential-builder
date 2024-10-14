@@ -1,4 +1,4 @@
-# Essential Builder
+# essential-builder
 
 [![Crates.io][crates-badge]][crates-url]
 [![Documentation][docs-badge]][docs-url]
@@ -14,14 +14,4 @@
 [actions-badge]: https://github.com/essential-contributions/essential-builder/workflows/ci/badge.svg
 [actions-url]: https://github.com/essential-contributions/essential-builder/actions
 
-Build blocks for the Essential protocol.
-
-### Core functionality
-- [essential-builder](./crates/builder/README.md)
-
-### Database
-- [essential-builder-db](./crates/builder-db/README.md)
-
-### Interface
-- [essential-builder-api](./crates/builder-api/README.md)
-- [essential-builder-cli](./crates/builder-cli/README.md)
+A block builder library implementation for the Essential protocol.
