@@ -9,7 +9,7 @@
 
     # The essential node.
     essential-node = {
-      url = "git+ssh://git@github.com/essential-contributions/essential-node";
+      url = "github:essential-contributions/essential-node";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.systems.follows = "nixpkgs";
     };
