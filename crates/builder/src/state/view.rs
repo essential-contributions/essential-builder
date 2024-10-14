@@ -31,10 +31,7 @@ impl View {
         {
             return Ok(Some(v.clone()));
         }
-        let block_num: u64 = self
-            .block_num
-            .try_into()
-            .expect("block_num should be `i64`");
+        let block_num = self.block_num;
         self.conn_pool
             .acquire_then(move |conn| {
                 use essential_node_db::finalized::query_state_exclusive_block;

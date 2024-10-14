@@ -13,7 +13,7 @@ use essential_node_db as node_db;
 use essential_types::{
     predicate::Predicate,
     solution::{Solution, SolutionData},
-    Block, ContentAddress, PredicateAddress,
+    Block, ContentAddress, PredicateAddress, Word,
 };
 use std::{collections::HashMap, num::NonZero, ops::Range, sync::Arc, time::Duration};
 
@@ -146,12 +146,9 @@ pub async fn build_block_fifo(
             block_num
         }
     };
-    let block_num: BlockNum = block_number
-        .try_into()
-        .expect("block_number should be `i64`");
 
     #[cfg(feature = "tracing")]
-    tracing::debug!("Building block {}", block_num);
+    tracing::debug!("Building block {}", block_number);
 
     // TODO: Produce any "special" block-builder specific solutions here
     // (e.g. updating block number and timestamp in the block contract).
@@ -171,7 +168,7 @@ pub async fn build_block_fifo(
 
     // Check all solutions.
     let (solutions, summary) =
-        check_solutions(node_conn_pool.clone(), block_num, &solutions, conf).await?;
+        check_solutions(node_conn_pool.clone(), block_number, &solutions, conf).await?;
 
     // Construct the block.
     let block = Block {
@@ -216,7 +213,7 @@ pub async fn build_block_fifo(
         .iter()
         .map(|(ca, sol_ix, invalid)| {
             let failure = SolutionFailure {
-                attempt_block_num: block_num,
+                attempt_block_num: block_number,
                 attempt_block_addr: block_addr.clone(),
                 attempt_solution_ix: *sol_ix,
                 err_msg: format!("{invalid}").into(),
@@ -249,7 +246,7 @@ pub async fn build_block_fifo(
 /// Retrieve the last block number and its timestamp.
 fn last_block_header(
     conn: &rusqlite::Connection,
-) -> Result<Option<(u64, Duration)>, LastBlockHeaderError> {
+) -> Result<Option<(Word, Duration)>, LastBlockHeaderError> {
     // Retrieve the last block CA.
     let block_ca = match node_db::get_latest_finalized_block_address(conn)? {
         Some(ca) => ca,
@@ -417,7 +414,7 @@ async fn check_solution(
     .await
     {
         Err(err) => Ok(Err(InvalidSolution::Predicates(err))),
-        Ok((_util, gas)) => Ok(Ok(gas)),
+        Ok(gas) => Ok(Ok(gas)),
     }
 }
 
