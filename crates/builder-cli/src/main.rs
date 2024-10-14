@@ -118,7 +118,7 @@ enum Db {
 // The default path to the builder's DB.
 fn default_builder_db_path() -> Option<PathBuf> {
     dirs::data_dir().map(|mut path| {
-        path.extend(["essential", "builder", "db.sqlite"]);
+        path.extend(["essential", "builder", "db.sqlite3"]);
         path
     })
 }
@@ -126,7 +126,7 @@ fn default_builder_db_path() -> Option<PathBuf> {
 // The default path to the node's DB.
 fn default_node_db_path() -> Option<PathBuf> {
     dirs::data_dir().map(|mut path| {
-        path.extend(["essential", "node", "db.sqlite"]);
+        path.extend(["essential", "node", "db.sqlite3"]);
         path
     })
 }
