@@ -39,25 +39,6 @@ async fn test_listener() -> tokio::net::TcpListener {
         .unwrap()
 }
 
-/// A function that waits until the server at the given port is ready to receive requests.
-async fn await_server_online(port: u16, timeout_duration: std::time::Duration) {
-    let server_ready = async {
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
-        let client = client();
-        let url = format!("http://{LOCALHOST}:{port}/");
-        loop {
-            interval.tick().await;
-            match client.get(&url).send().await {
-                Ok(_) => return,
-                Err(_) => continue, // Retry if the server is not ready yet
-            }
-        }
-    };
-    tokio::time::timeout(timeout_duration, server_ready)
-        .await
-        .unwrap()
-}
-
 /// Spawns a test server, then calls the given asynchronous function. Upon
 /// completion, closes the server, panicking if any errors occurred.
 pub async fn with_test_server<Fut>(
@@ -77,7 +58,6 @@ where
             _ = shutdown_rx => {},
         }
     });
-    await_server_online(port, std::time::Duration::from_secs(3)).await;
     let output = f(port).await;
     shutdown_tx.send(()).unwrap();
     api_jh.await.unwrap();
