@@ -1,9 +1,11 @@
 [package]
 name = "essential-builder-db"
+description = "The Essential builder database"
 version = "0.1.0"
-edition.workspace = true
 authors.workspace = true
+edition.workspace = true
 homepage.workspace = true
+license.workspace = true
 repository.workspace = true
 
 [dependencies]
