@@ -570,9 +570,10 @@ dependencies = [
 
 [[package]]
 name = "essential-builder"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "essential-builder-db",
+ "essential-builder-types",
  "essential-check",
  "essential-hash",
  "essential-node",
@@ -591,11 +592,12 @@ dependencies = [
 
 [[package]]
 name = "essential-builder-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "essential-builder-api",
  "essential-builder-db",
+ "essential-builder-types",
  "essential-hash",
  "essential-node",
  "essential-types",
@@ -638,8 +640,9 @@ dependencies = [
 
 [[package]]
 name = "essential-builder-db"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "essential-builder-types",
  "essential-hash",
  "essential-types",
  "num_cpus",
@@ -649,6 +652,14 @@ dependencies = [
  "serde",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "essential-builder-types"
+version = "0.1.0"
+dependencies = [
+ "essential-types",
+ "serde",
 ]
 
 [[package]]

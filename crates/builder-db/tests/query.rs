@@ -1,4 +1,5 @@
-use essential_builder_db::{self as builder_db, SolutionFailure};
+use essential_builder_db::{self as builder_db};
+use essential_builder_types::SolutionFailure;
 use rusqlite::Connection;
 use std::time::Duration;
 

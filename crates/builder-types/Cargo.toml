@@ -1,0 +1,13 @@
+[package]
+name = "essential-builder-types"
+description = "The Essential builder types"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+essential-types = { workspace = true }
+serde = { workspace = true }
