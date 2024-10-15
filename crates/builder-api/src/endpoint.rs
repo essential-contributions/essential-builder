@@ -56,7 +56,7 @@ pub mod latest_solution_failures {
     use essential_builder_types::SolutionFailure;
     pub const MAX_LIMIT: u32 = 10;
     use super::*;
-    pub const PATH: &str = "/latest_solution_failures/:solution_ca/:limit";
+    pub const PATH: &str = "/latest-solution-failures/:solution_ca/:limit";
     pub async fn handler(
         State(state): State<crate::State>,
         Path((solution_ca, limit)): Path<(String, u32)>,

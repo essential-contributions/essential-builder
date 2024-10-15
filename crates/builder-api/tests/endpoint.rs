@@ -103,7 +103,7 @@ async fn test_latest_solution_failures() {
         for ca in solution_cas {
             let limit = 1;
             let response =
-                reqwest_get(port, &format!("/latest_solution_failures/{ca}/{limit}")).await;
+                reqwest_get(port, &format!("/latest-solution-failures/{ca}/{limit}")).await;
             assert_eq!(response.status(), 200);
             let failure = response
                 .json::<Vec<SolutionFailure<'static>>>()
