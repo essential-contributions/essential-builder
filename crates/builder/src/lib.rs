@@ -6,7 +6,8 @@ use error::{
     BuildBlockError, CheckSolutionError, CheckSolutionsError, InvalidSolution,
     LastBlockHeaderError, SolutionPredicatesError,
 };
-use essential_builder_db::{self as builder_db, SolutionFailure};
+use essential_builder_db::{self as builder_db};
+use essential_builder_types::SolutionFailure;
 use essential_check::{self as check, solution::CheckPredicateConfig, state_read_vm::Gas};
 use essential_node as node;
 use essential_node_db as node_db;

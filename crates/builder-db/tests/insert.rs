@@ -1,4 +1,5 @@
 use essential_builder_db as builder_db;
+use essential_builder_types::SolutionFailure;
 use rusqlite::Connection;
 
 mod util;
@@ -44,7 +45,7 @@ fn insert_solution_failure() {
     tx.commit().unwrap();
 
     // Insert a solution failure.
-    let failure = builder_db::SolutionFailure {
+    let failure = SolutionFailure {
         attempt_block_num: 1,
         attempt_block_addr: block_ca,
         attempt_solution_ix: 0,

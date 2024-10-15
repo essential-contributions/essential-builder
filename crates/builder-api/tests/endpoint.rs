@@ -1,5 +1,5 @@
 use essential_builder_api as builder_api;
-use essential_builder_db::SolutionFailure;
+use essential_builder_types::SolutionFailure;
 use essential_node::test_utils as test_util;
 use essential_types::ContentAddress;
 use std::{sync::Arc, time::Duration};

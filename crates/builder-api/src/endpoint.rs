@@ -53,7 +53,7 @@ pub mod health_check {
 /// at most `limit` (or [`latest_solution_failures::MAX_LIMIT`] - whatever's lowest) of
 /// the latest failures for the associated solution.
 pub mod latest_solution_failures {
-    use essential_builder_db::SolutionFailure;
+    use essential_builder_types::SolutionFailure;
     pub const MAX_LIMIT: u32 = 10;
     use super::*;
     pub const PATH: &str = "/latest_solution_failures/:solution_ca/:limit";
