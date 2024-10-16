@@ -166,7 +166,9 @@ pub async fn build_block_fifo(
         .try_into()
         .map_err(|_| BuildBlockError::TimestampOutOfRange)?;
     let sol_data = block_state_solution(conf.block_state.clone(), block_number, block_secs);
-    let solution = Solution { data: vec![sol_data] };
+    let solution = Solution {
+        data: vec![sol_data],
+    };
     let ca = essential_hash::content_addr(&solution);
     let mut solutions = vec![(ca, Arc::new(solution))];
 
