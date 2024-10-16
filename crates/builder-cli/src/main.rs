@@ -185,24 +185,24 @@ fn node_db_conf_from_args(args: &Args) -> anyhow::Result<node::db::Config> {
 }
 
 /// Construct the builder's block-building config from the parsed args.
-fn builder_conf_from_args(args: &Args) -> anyhow::Result<builder::Config> {
-    Ok(builder::Config {
+fn builder_conf_from_args(args: &Args) -> builder::Config {
+    builder::Config {
         solution_failures_to_keep: args.solution_failures_to_keep,
         solution_attempts_per_block: args.solution_attempts_per_block,
         parallel_chunk_size: args.parallel_chunk_size,
         check: std::sync::Arc::new(CheckPredicateConfig {
             collect_all_failures: args.solution_check_collects_all_failures,
         }),
-    })
+    }
 }
 
 /// Construct the node's run config from the parsed args.
-fn node_run_conf_from_args(args: &Args) -> anyhow::Result<node::RunConfig> {
-    Ok(node::RunConfig {
+fn node_run_conf_from_args(args: &Args) -> node::RunConfig {
+    node::RunConfig {
         relayer_source_endpoint: args.relayer_source_endpoint.clone(),
         run_state_derivation: args.state_derivation,
         run_validation: args.validation,
-    })
+    }
 }
 
 #[cfg(feature = "tracing")]
@@ -275,7 +275,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let builder_api = builder_api::serve(&router, &listener, args.builder_api_tcp_conn_limit);
 
     // Run the block builder.
-    let builder_conf = builder_conf_from_args(&args)?;
+    let builder_conf = builder_conf_from_args(&args);
     let block_interval = Duration::from_millis(args.block_interval_ms.into());
     let builder = run_builder(
         builder_db.clone(),
@@ -285,17 +285,20 @@ async fn run(args: Args) -> anyhow::Result<()> {
         block_interval,
     );
 
-    let node_run_conf = node_run_conf_from_args(&args)?;
-    let node_run = async move {
-        if node_run_conf.relayer_source_endpoint.is_none()
-            && !node_run_conf.run_state_derivation
-            && !node_run_conf.run_validation
-        {
-            std::future::pending().await
-        } else {
-            node::run(node_db.clone(), node_run_conf, block_tx)?
-                .join()
-                .await
+    let node_run_conf = node_run_conf_from_args(&args);
+    let node_run = {
+        let node_db = node_db.clone();
+        async move {
+            if node_run_conf.relayer_source_endpoint.is_none()
+                && !node_run_conf.run_state_derivation
+                && !node_run_conf.run_validation
+            {
+                std::future::pending().await
+            } else {
+                node::run(node_db.clone(), node_run_conf, block_tx)?
+                    .join()
+                    .await
+            }
         }
     };
 
