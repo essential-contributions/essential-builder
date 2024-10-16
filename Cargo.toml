@@ -45,7 +45,7 @@ tracing = "0.1.40"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 
-essential-builder = { path = "crates/builder", version = "0.3.0" }
+essential-builder = { path = "crates/builder", version = "0.4.0" }
 essential-builder-api = { path = "crates/builder-api", version = "0.3.0" }
 essential-builder-db = { path = "crates/builder-db", version = "0.2.0" }
 essential-builder-types = { path = "crates/builder-types", version = "0.1.0" }

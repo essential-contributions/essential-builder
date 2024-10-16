@@ -57,10 +57,11 @@ impl View {
     ) -> Result<Vec<Value>, StateReadError> {
         let mut values = vec![];
         while num_values > 0 {
-            match self.query(contract_ca.clone(), key.clone()).await? {
-                None => return Err(StateReadError::NoEntry(key)),
-                Some(value) => values.push(value),
-            }
+            let value = self
+                .query(contract_ca.clone(), key.clone())
+                .await?
+                .unwrap_or(vec![]);
+            values.push(value);
             key = next_key(key).map_err(|key| StateReadError::OutOfRange { key, num_values })?;
             num_values -= 1;
         }
