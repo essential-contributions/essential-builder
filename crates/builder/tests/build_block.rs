@@ -59,7 +59,7 @@ async fn build_block_all_solutions_succeed() {
         .unwrap();
 
     // Check that all solutions succeeded
-    assert_eq!(summary.succeeded.len(), solutions.len());
+    assert_eq!(summary.succeeded.len(), solutions.len() + 1);
     assert_eq!(summary.failed.len(), 0);
 
     // Check that the solutions were deleted after being used
@@ -104,7 +104,7 @@ async fn build_block_all_solutions_fail() {
 
     // Check that all solutions failed
     assert_eq!(summary.failed.len(), solutions.len());
-    assert_eq!(summary.succeeded.len(), 0);
+    assert_eq!(summary.succeeded.len(), 1); // Only the block state solution succeeds.
 
     // Check that solution failures are recorded
     for (ca, solution_ix, _invalid_solution) in summary.failed {
@@ -140,8 +140,8 @@ async fn build_block_no_solutions() {
         .await
         .unwrap();
 
-    // Check that there are no succeeded or failed solutions
-    assert_eq!(summary.succeeded.len(), 0);
+    // Check that there are no succeeded or failed solutions besides the block state solution.
+    assert_eq!(summary.succeeded.len(), 1);
     assert_eq!(summary.failed.len(), 0);
 }
 

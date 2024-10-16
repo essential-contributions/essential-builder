@@ -25,6 +25,9 @@ pub enum BuildBlockError {
     /// System time produced a non-monotonic timestamp.
     #[error("System time produced non-monotonic timestamp")]
     TimestampNotMonotonic,
+    /// System time is out of range of `Word`.
+    #[error("System timestamp is out of range of `Word`")]
+    TimestampOutOfRange,
     /// Failed to retrieve the last block header.
     #[error("Failed to retrieve the last block header")]
     LastBlockHeader(#[from] node::db::AcquireThenError<LastBlockHeaderError>),

@@ -11,7 +11,7 @@ use essential_builder_types::SolutionFailure;
 use essential_check::{self as check, solution::CheckPredicateConfig, state_read_vm::Gas};
 pub use essential_node as node;
 use essential_node_db as node_db;
-use essential_node_types::BigBang;
+use essential_node_types::{block_state_solution, BigBang};
 use essential_types::{
     predicate::Predicate,
     solution::{Solution, SolutionData},
@@ -161,7 +161,14 @@ pub async fn build_block_fifo(
 
     // TODO: Produce any "special" block-builder specific solutions here
     // (e.g. updating block number and timestamp in the block contract).
-    let mut solutions = vec![];
+    let block_secs: Word = block_timestamp
+        .as_secs()
+        .try_into()
+        .map_err(|_| BuildBlockError::TimestampOutOfRange)?;
+    let sol_data = block_state_solution(conf.block_state.clone(), block_number, block_secs);
+    let solution = Solution { data: vec![sol_data] };
+    let ca = essential_hash::content_addr(&solution);
+    let mut solutions = vec![(ca, Arc::new(solution))];
 
     // Read out the oldest solutions.
     const MAX_TIMESTAMP_RANGE: Range<Duration> =
@@ -195,7 +202,9 @@ pub async fn build_block_fifo(
     );
 
     // If the block is empty, notify that we're skipping the block.
-    if block.solutions.is_empty() {
+    // FIXME: This uses `<= 1` because the first solution is the block state solution.
+    // This should be refactored.
+    if block.solutions.len() <= 1 {
         #[cfg(feature = "tracing")]
         tracing::debug!("Skipping empty block {}", block_addr);
 
