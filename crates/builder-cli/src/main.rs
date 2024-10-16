@@ -101,6 +101,19 @@ struct Args {
     /// By default, this is the number of available CPUs multiplied by 4.
     #[arg(long, default_value_t = node::db::Config::default_conn_limit())]
     node_db_conn_limit: usize,
+
+    // ----- run node -----
+    /// The endpoint of the node that will act as the layer-1 for the relayer.
+    ///
+    /// If this is `Some`, then the relayer stream will run.
+    #[arg(long)]
+    relayer_source_endpoint: Option<String>,
+    /// Run the state derivation stream of the node.
+    #[arg(long)]
+    state_derivation: bool,
+    /// Run the validation stream of the node.
+    #[arg(long)]
+    validation: bool,
 }
 
 const DEFAULT_BLOCK_INTERVAL_MS: u32 = 5_000;
@@ -183,6 +196,15 @@ fn builder_conf_from_args(args: &Args) -> anyhow::Result<builder::Config> {
     })
 }
 
+/// Construct the node's run config from the parsed args.
+fn node_run_conf_from_args(args: &Args) -> anyhow::Result<node::RunConfig> {
+    Ok(node::RunConfig {
+        relayer_source_endpoint: args.relayer_source_endpoint.clone(),
+        run_state_derivation: args.state_derivation,
+        run_validation: args.validation,
+    })
+}
+
 #[cfg(feature = "tracing")]
 fn init_tracing_subscriber() {
     let _ = tracing_subscriber::fmt()
@@ -258,16 +280,31 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let builder = run_builder(
         builder_db.clone(),
         node_db.clone(),
-        block_tx,
+        block_tx.clone(),
         builder_conf,
         block_interval,
     );
+
+    let node_run_conf = node_run_conf_from_args(&args)?;
+    let node_run = async move {
+        if node_run_conf.relayer_source_endpoint.is_none()
+            && !node_run_conf.run_state_derivation
+            && !node_run_conf.run_validation
+        {
+            std::future::pending().await
+        } else {
+            node::run(node_db.clone(), node_run_conf, block_tx)?
+                .join()
+                .await
+        }
+    };
 
     // Select the first future to complete to close.
     let ctrl_c = tokio::signal::ctrl_c();
     tokio::select! {
         _ = builder_api => {},
         _ = node_api => (),
+        _ = node_run => (),
         _ = ctrl_c => {},
         res = builder => res.context("Critical error during block building")?,
     }
