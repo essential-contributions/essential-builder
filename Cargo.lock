@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "essential-builder"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "essential-builder-db",
  "essential-builder-types",
@@ -622,7 +622,7 @@ dependencies = [
 
 [[package]]
 name = "essential-builder-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
