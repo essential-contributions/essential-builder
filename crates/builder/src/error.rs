@@ -88,7 +88,9 @@ pub enum InvalidSolution {
     PredicateDoesNotExist(ContentAddress),
     /// Solution specified a predicate that exists, but was invalid when reading from contract
     /// registry state.
-    #[error("Solution specified a predicate that was invalid when reading from contract registry state")]
+    #[error(
+        "Solution specified a predicate that was invalid when reading from contract registry state"
+    )]
     PredicateInvalid,
     /// Validation of the solution predicates failed.
     #[error("Validation of the solution predicates failed: {0}")]
