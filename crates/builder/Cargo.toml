@@ -15,6 +15,7 @@ essential-builder-types = { workspace = true }
 essential-hash = { workspace = true }
 essential-node = { workspace = true }
 essential-node-db = { workspace = true }
+essential-node-types = { workspace = true }
 essential-types = { workspace = true }
 futures = { workspace = true }
 num_cpus = { workspace = true }

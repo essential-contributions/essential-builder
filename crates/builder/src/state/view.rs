@@ -1,8 +1,15 @@
 use super::{Mutations, SolutionIx};
-use crate::{error::StateReadError, BlockNum};
+use crate::{
+    error::{QueryPredicateError, StateReadError},
+    BlockNum,
+};
 use essential_check::state_read_vm::StateRead;
 use essential_node as node;
-use essential_types::{predicate::Predicate, ContentAddress, Key, Value, Word};
+use essential_node_types::contract_registry;
+use essential_types::{
+    convert::bytes_from_word, predicate::Predicate, ContentAddress, Key, PredicateAddress, Value,
+    Word,
+};
 use futures::FutureExt;
 use std::{future::Future, pin::Pin, sync::Arc};
 
@@ -63,13 +70,42 @@ impl View {
     /// Get the predicate at the given content address.
     pub(crate) async fn get_predicate(
         self,
-        predicate_ca: ContentAddress,
-    ) -> Result<Option<Predicate>, node::db::AcquireThenQueryError> {
-        // FIXME:
-        // Update this to use `self.query` once contract registry is working.
-        // This is because the required predicate may be provided by this solution
-        // or another solution earlier in this block.
-        self.conn_pool.get_predicate(predicate_ca).await
+        contract_registry: ContentAddress,
+        pred_addr: &PredicateAddress,
+    ) -> Result<Option<Predicate>, QueryPredicateError> {
+        // Check that the predicate is a part of the contract.
+        let contract_predicate_key = contract_registry::contract_predicate_key(pred_addr);
+        if self
+            .query(contract_registry.clone(), contract_predicate_key)
+            .await?
+            .is_none()
+        {
+            return Ok(None);
+        }
+
+        // Read the full predicate out of the contract registry storage.
+        let predicate_key = contract_registry::predicate_key(&pred_addr.predicate);
+        let Some(pred_words) = self.query(contract_registry, predicate_key).await? else {
+            return Ok(None);
+        };
+
+        // Read the length from the front.
+        let Some(&pred_len_bytes) = pred_words.first() else {
+            return Err(QueryPredicateError::MissingLenBytes);
+        };
+        let pred_len_bytes: usize = pred_len_bytes
+            .try_into()
+            .map_err(|_| QueryPredicateError::InvalidLenBytes)?;
+        let pred_words = &pred_words[1..];
+        let pred_bytes: Vec<u8> = pred_words
+            .iter()
+            .copied()
+            .flat_map(bytes_from_word)
+            .take(pred_len_bytes)
+            .collect();
+
+        let predicate = Predicate::decode(&pred_bytes)?;
+        Ok(Some(predicate))
     }
 }
 
