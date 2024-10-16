@@ -6,10 +6,11 @@ use essential_builder_db as builder_db;
 use essential_check::solution::CheckPredicateConfig;
 use essential_node as node;
 use essential_node_api as node_api;
+use essential_node_types::BigBang;
 use std::{
     net::{SocketAddr, SocketAddrV4},
     num::NonZero,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -47,6 +48,16 @@ struct Args {
     /// Potentially useful for debugging or testing tools.
     #[arg(long)]
     solution_check_collects_all_failures: bool,
+    /// Specify a path to the `big-bang.yml` configuration.
+    ///
+    /// This specifies the genesis configuration, which includes items like the contract registry
+    /// address, block state address and associated big-bang state.
+    ///
+    /// If no configuration is specified, defaults to the `BigBang::default()` implementation.
+    ///
+    /// To learn more, see the API docs for the `essential_node_types::BigBang` type.
+    #[arg(long)]
+    big_bang: Option<std::path::PathBuf>,
 
     // ----- builder API -----
     /// The address to bind to for the builder API's TCP listener.
@@ -101,6 +112,19 @@ struct Args {
     /// By default, this is the number of available CPUs multiplied by 4.
     #[arg(long, default_value_t = node::db::Config::default_conn_limit())]
     node_db_conn_limit: usize,
+
+    // ----- run node -----
+    /// The endpoint of the node that will act as the layer-1 for the relayer.
+    ///
+    /// If this is `Some`, then the relayer stream will run.
+    #[arg(long)]
+    relayer_source_endpoint: Option<String>,
+    /// Run the state derivation stream of the node.
+    #[arg(long)]
+    state_derivation: bool,
+    /// Run the validation stream of the node.
+    #[arg(long)]
+    validation: bool,
 }
 
 const DEFAULT_BLOCK_INTERVAL_MS: u32 = 5_000;
@@ -172,15 +196,40 @@ fn node_db_conf_from_args(args: &Args) -> anyhow::Result<node::db::Config> {
 }
 
 /// Construct the builder's block-building config from the parsed args.
-fn builder_conf_from_args(args: &Args) -> anyhow::Result<builder::Config> {
-    Ok(builder::Config {
+fn builder_conf_from_args(args: &Args, big_bang: &BigBang) -> builder::Config {
+    builder::Config {
         solution_failures_to_keep: args.solution_failures_to_keep,
         solution_attempts_per_block: args.solution_attempts_per_block,
         parallel_chunk_size: args.parallel_chunk_size,
         check: std::sync::Arc::new(CheckPredicateConfig {
             collect_all_failures: args.solution_check_collects_all_failures,
         }),
-    })
+        contract_registry: big_bang.contract_registry.clone(),
+        block_state: big_bang.block_state.clone(),
+    }
+}
+
+/// Construct the node's run config from the parsed args.
+fn node_run_conf_from_args(args: &Args) -> node::RunConfig {
+    node::RunConfig {
+        relayer_source_endpoint: args.relayer_source_endpoint.clone(),
+        run_state_derivation: args.state_derivation,
+        run_validation: args.validation,
+    }
+}
+
+/// Load the big bang configuration from the yml file at the given path, or produce the default if
+/// no path is given.
+fn load_big_bang_or_default(path: Option<&Path>) -> anyhow::Result<BigBang> {
+    match path {
+        None => Ok(BigBang::default()),
+        Some(path) => {
+            let big_bang_str = std::fs::read_to_string(path)
+                .context("failed to read big bang configuration from path")?;
+            serde_yaml::from_str(&big_bang_str)
+                .context("failed to deserialize big bang configuration from YAML string")
+        }
+    }
 }
 
 #[cfg(feature = "tracing")]
@@ -220,6 +269,12 @@ async fn run(args: Args) -> anyhow::Result<()> {
     }
     let node_db = node::db(&node_db_conf)?;
 
+    // Load the big bang configuration, and ensure the big bang block exists.
+    let big_bang = load_big_bang_or_default(args.big_bang.as_deref())?;
+    node::ensure_big_bang_block(&node_db, &big_bang)
+        .await
+        .context("failed to ensure big bang block")?;
+
     // Run the node API.
     let block_tx = node::BlockTx::new();
     let block_rx = block_tx.new_listener();
@@ -253,21 +308,44 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let builder_api = builder_api::serve(&router, &listener, args.builder_api_tcp_conn_limit);
 
     // Run the block builder.
-    let builder_conf = builder_conf_from_args(&args)?;
+    let builder_conf = builder_conf_from_args(&args, &big_bang);
     let block_interval = Duration::from_millis(args.block_interval_ms.into());
     let builder = run_builder(
         builder_db.clone(),
         node_db.clone(),
-        block_tx,
+        block_tx.clone(),
         builder_conf,
         block_interval,
     );
+
+    let node_run_conf = node_run_conf_from_args(&args);
+    let node_run = {
+        let node_db = node_db.clone();
+        async move {
+            if node_run_conf.relayer_source_endpoint.is_none()
+                && !node_run_conf.run_state_derivation
+                && !node_run_conf.run_validation
+            {
+                std::future::pending().await
+            } else {
+                node::run(
+                    node_db.clone(),
+                    node_run_conf,
+                    big_bang.contract_registry.contract,
+                    block_tx,
+                )?
+                .join()
+                .await
+            }
+        }
+    };
 
     // Select the first future to complete to close.
     let ctrl_c = tokio::signal::ctrl_c();
     tokio::select! {
         _ = builder_api => {},
         _ = node_api => (),
+        _ = node_run => (),
         _ = ctrl_c => {},
         res = builder => res.context("Critical error during block building")?,
     }

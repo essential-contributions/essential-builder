@@ -1,7 +1,7 @@
 [package]
 name = "essential-builder-cli"
 description = "The Essential builder CLI"
-version = "0.1.0"
+version = "0.2.0"
 authors.workspace = true
 edition.workspace = true
 homepage.workspace = true
@@ -22,6 +22,8 @@ essential-builder-db = { workspace = true }
 essential-check = { workspace = true }
 essential-node = { workspace = true }
 essential-node-api = { workspace = true }
+essential-node-types = { workspace = true }
+serde_yaml = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }

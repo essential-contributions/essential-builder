@@ -4,13 +4,14 @@
 
 use error::{
     BuildBlockError, CheckSolutionError, CheckSolutionsError, InvalidSolution,
-    LastBlockHeaderError, SolutionPredicatesError,
+    LastBlockHeaderError, QueryPredicateError, SolutionPredicatesError,
 };
 use essential_builder_db::{self as builder_db};
 use essential_builder_types::SolutionFailure;
 use essential_check::{self as check, solution::CheckPredicateConfig, state_read_vm::Gas};
-use essential_node as node;
+pub use essential_node as node;
 use essential_node_db as node_db;
+use essential_node_types::{block_state_solution, BigBang};
 use essential_types::{
     predicate::Predicate,
     solution::{Solution, SolutionData},
@@ -44,6 +45,10 @@ pub struct Config {
     ///
     /// Wrapped in an `Arc` as this is shared between tasks.
     pub check: Arc<CheckPredicateConfig>,
+    /// The address of the big bang contract registry contract and its predicate.
+    pub contract_registry: PredicateAddress,
+    /// The address of the big bang block state contract and its predicate.
+    pub block_state: PredicateAddress,
 }
 
 /// A summary of building a block, returned by [`build_block_fifo`].
@@ -76,12 +81,15 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let big_bang = BigBang::default();
         Self {
             solution_failures_to_keep: Self::DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT,
             solution_attempts_per_block: Self::DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK
                 .try_into()
                 .expect("declared const must be non-zero"),
             parallel_chunk_size: Self::default_parallel_chunk_size(),
+            contract_registry: big_bang.contract_registry,
+            block_state: big_bang.block_state,
             check: Default::default(),
         }
     }
@@ -153,7 +161,16 @@ pub async fn build_block_fifo(
 
     // TODO: Produce any "special" block-builder specific solutions here
     // (e.g. updating block number and timestamp in the block contract).
-    let mut solutions = vec![];
+    let block_secs: Word = block_timestamp
+        .as_secs()
+        .try_into()
+        .map_err(|_| BuildBlockError::TimestampOutOfRange)?;
+    let sol_data = block_state_solution(conf.block_state.clone(), block_number, block_secs);
+    let solution = Solution {
+        data: vec![sol_data],
+    };
+    let ca = essential_hash::content_addr(&solution);
+    let mut solutions = vec![(ca, Arc::new(solution))];
 
     // Read out the oldest solutions.
     const MAX_TIMESTAMP_RANGE: Range<Duration> =
@@ -187,7 +204,9 @@ pub async fn build_block_fifo(
     );
 
     // If the block is empty, notify that we're skipping the block.
-    if block.solutions.is_empty() {
+    // FIXME: This uses `<= 1` because the first solution is the block state solution.
+    // This should be refactored.
+    if block.solutions.len() <= 1 {
         #[cfg(feature = "tracing")]
         tracing::debug!("Skipping empty block {}", block_addr);
 
@@ -314,6 +333,7 @@ async fn check_solutions(
             block_num,
             &mutations_arc,
             range.clone().zip(chunk.iter().map(|(_, s)| s.clone())),
+            &conf.contract_registry.contract,
             &conf.check,
         )
         .await?;
@@ -359,6 +379,7 @@ async fn check_solution_chunk(
     block_num: BlockNum,
     proposed_mutations: &Arc<state::Mutations>,
     chunk: impl IntoIterator<Item = (usize, Arc<Solution>)>,
+    contract_registry: &ContentAddress,
     check_conf: &Arc<check::solution::CheckPredicateConfig>,
 ) -> Result<Vec<Result<Gas, InvalidSolution>>, CheckSolutionsError> {
     // Spawn concurrent checks for each solution.
@@ -368,9 +389,10 @@ async fn check_solution_chunk(
             let mutations = proposed_mutations.clone();
             let conn_pool = node_conn_pool.clone();
             let check_conf = check_conf.clone();
+            let registry = contract_registry.clone();
             let (pre, post) = state::pre_and_post_view(conn_pool, mutations, block_num, sol_ix);
             async move {
-                let res = check_solution(solution.clone(), pre, post, check_conf).await;
+                let res = check_solution(solution.clone(), pre, post, &registry, check_conf).await;
                 (sol_ix, res)
             }
         })
@@ -392,17 +414,28 @@ async fn check_solution(
     solution: Arc<Solution>,
     pre_state: state::View,
     post_state: state::View,
+    contract_registry: &ContentAddress,
     check_conf: Arc<CheckPredicateConfig>,
 ) -> Result<Result<Gas, InvalidSolution>, CheckSolutionError> {
     // Retrieve the predicates that the solution attempts to solve from the post-state. This
     // ensures that the solution has access to contracts submitted as a part of the solution.
-    let predicates = match get_solution_predicates(&post_state, &solution.data).await {
-        Ok(predicates) => predicates,
-        Err(SolutionPredicatesError::PredicateDoesNotExist(ca)) => {
-            return Ok(Err(InvalidSolution::PredicateDoesNotExist(ca)));
-        }
-        Err(SolutionPredicatesError::Query(err)) => return Err(CheckSolutionError::NodeQuery(err)),
-    };
+    let predicates =
+        match get_solution_predicates(contract_registry, &post_state, &solution.data).await {
+            Ok(predicates) => predicates,
+            Err(SolutionPredicatesError::PredicateDoesNotExist(ca)) => {
+                return Ok(Err(InvalidSolution::PredicateDoesNotExist(ca)));
+            }
+            Err(SolutionPredicatesError::QueryPredicate(err)) => match err {
+                QueryPredicateError::Decode(_)
+                | QueryPredicateError::MissingLenBytes
+                | QueryPredicateError::InvalidLenBytes => {
+                    return Ok(Err(InvalidSolution::PredicateInvalid));
+                }
+                QueryPredicateError::ConnPoolQuery(err) => {
+                    return Err(CheckSolutionError::NodeQuery(err))
+                }
+            },
+        };
 
     // Create the post-state and check the solution's predicates.
     match check::solution::check_predicates(
@@ -421,18 +454,20 @@ async fn check_solution(
 
 /// Read and return all predicates required the given solution data.
 async fn get_solution_predicates(
+    contract_registry: &ContentAddress,
     view: &state::View,
     solution_data: &[SolutionData],
 ) -> Result<HashMap<ContentAddress, Arc<Predicate>>, SolutionPredicatesError> {
     // Spawn concurrent queries for each predicate.
     let queries: tokio::task::JoinSet<_> = solution_data
         .iter()
-        .map(|data| data.predicate_to_solve.predicate.clone())
+        .map(|data| data.predicate_to_solve.clone())
         .enumerate()
-        .map(move |(ix, pred_ca)| {
+        .map(move |(ix, pred_addr)| {
             let view = view.clone();
+            let registry = contract_registry.clone();
             async move {
-                let pred = view.get_predicate(pred_ca).await;
+                let pred = view.get_predicate(registry, &pred_addr).await;
                 (ix, pred)
             }
         })
