@@ -180,6 +180,16 @@ impl ConnectionPool {
             .await
     }
 
+    /// Acquire a connection and call [`crate::list_solution_failures`].
+    pub async fn list_solution_failures(
+        &self,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Vec<crate::SolutionFailure<'static>>, AcquireThenRusqliteError> {
+        self.acquire_then(move |h| crate::list_solution_failures(h, offset, limit))
+            .await
+    }
+
     /// Acquire a connection and call [`crate::delete_solution`].
     pub async fn delete_solution(
         &self,

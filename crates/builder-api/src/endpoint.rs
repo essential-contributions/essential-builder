@@ -71,6 +71,28 @@ pub mod latest_solution_failures {
     }
 }
 
+/// The `/list_solution_failures` get endpoint.
+///
+/// Takes a `start` and a `limit` as a path parameter and returns
+/// at most `limit` of the latest failures for all solutions.
+/// Note start counts down from the latest failure.
+/// So the latest failure is at `0`.
+pub mod list_solution_failures {
+    use super::*;
+    use essential_builder_types::SolutionFailure;
+    pub const PATH: &str = "/list-solution-failures/:start/:limit";
+    pub async fn handler(
+        State(state): State<crate::State>,
+        Path((offset, limit)): Path<(u32, u32)>,
+    ) -> Result<Json<Vec<SolutionFailure<'static>>>, Error> {
+        let failures = state
+            .conn_pool
+            .list_solution_failures(offset, limit)
+            .await?;
+        Ok(Json(failures))
+    }
+}
+
 /// The `/submit-solution` get endpoint.
 ///
 /// Takes a JSON-serialized [`Solution`], and responds with its [`ContentAddress`] upon

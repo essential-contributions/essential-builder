@@ -49,6 +49,7 @@ pub mod query {
         LATEST_SOLUTION_FAILURES,
         "query/latest_solution_failures.sql"
     );
+    decl_const_sql_str!(LIST_SOLUTION_FAILURES, "query/list_solution_failures.sql");
 }
 
 pub mod table {
