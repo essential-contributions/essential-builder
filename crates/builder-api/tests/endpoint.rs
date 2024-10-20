@@ -120,3 +120,55 @@ async fn test_latest_solution_failures() {
         assert_eq!(failure, fetched_failure);
     }
 }
+
+#[tokio::test]
+async fn test_list_solution_failures() {
+    #[cfg(feature = "tracing")]
+    init_tracing_subscriber();
+
+    let db = test_conn_pool();
+
+    // Fake some solution failures.
+    const N_FAILURES: i64 = 3;
+    let solution_cas: Vec<_> = (0..N_FAILURES)
+        .map(|i| ContentAddress([i as u8; 32]))
+        .collect();
+    let failures: Vec<_> = (0..N_FAILURES)
+        .map(|i| SolutionFailure {
+            attempt_block_num: i,
+            attempt_block_addr: ContentAddress([i as u8; 32]),
+            attempt_solution_ix: 0,
+            err_msg: format!("failure {i}").into(),
+        })
+        .collect();
+
+    // Insert them into the DB so that they're queryable.
+    for (solution_ca, failure) in solution_cas.iter().zip(&failures) {
+        db.insert_solution_failure(solution_ca.clone(), failure.clone())
+            .await
+            .unwrap();
+    }
+
+    // Submit all of the solutions via the API.
+    let fetched_failures = with_test_server(state(db.clone()), |port| async move {
+        let mut failures = vec![];
+        for (start, _) in solution_cas.iter().enumerate() {
+            let limit = 1;
+            let response =
+                reqwest_get(port, &format!("/list-solution-failures/{start}/{limit}")).await;
+            assert_eq!(response.status(), 200);
+            let failure = response
+                .json::<Vec<SolutionFailure<'static>>>()
+                .await
+                .unwrap();
+            failures.extend(failure);
+        }
+        failures
+    })
+    .await;
+
+    // Check the fetched failures match those we inserted.
+    for (failure, fetched_failure) in failures.into_iter().rev().zip(fetched_failures) {
+        assert_eq!(failure, fetched_failure);
+    }
+}

@@ -242,6 +242,39 @@ pub fn latest_solution_failures(
     rows.collect()
 }
 
+/// List the latest solution failures.
+///
+/// Results are ordered by block number and solution index in descending order.
+///
+/// Returns at most `limit` failures and starts at `offset`.
+pub fn list_solution_failures(
+    conn: &Connection,
+    offset: u32,
+    limit: u32,
+) -> rusqlite::Result<Vec<SolutionFailure<'static>>> {
+    let mut stmt = conn.prepare(sql::query::LIST_SOLUTION_FAILURES)?;
+    let rows = stmt.query_map(
+        named_params! {
+            ":offset": offset,
+            ":limit": limit,
+        },
+        |row| {
+            let attempt_block_num: i64 = row.get("attempt_block_num")?;
+            let attempt_block_addr: Hash = row.get("attempt_block_addr")?;
+            let attempt_solution_ix: u32 = row.get("attempt_solution_ix")?;
+            let err_msg_blob: Vec<u8> = row.get("err_msg")?;
+            let err_msg = String::from_utf8_lossy(&err_msg_blob).into_owned();
+            Ok(SolutionFailure {
+                attempt_block_num,
+                attempt_block_addr: ContentAddress(attempt_block_addr),
+                attempt_solution_ix,
+                err_msg: err_msg.into(),
+            })
+        },
+    )?;
+    rows.collect()
+}
+
 /// Delete the solution with the given CA from the database if it exists.
 ///
 /// This also deletes all submissions associated with the specified solution.

@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "essential-builder"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "essential-builder-db",
  "essential-builder-types",
@@ -593,7 +593,7 @@ dependencies = [
 
 [[package]]
 name = "essential-builder-api"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "axum",
  "essential-builder-api",
@@ -622,7 +622,7 @@ dependencies = [
 
 [[package]]
 name = "essential-builder-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -643,7 +643,7 @@ dependencies = [
 
 [[package]]
 name = "essential-builder-db"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "essential-builder-types",
  "essential-hash",

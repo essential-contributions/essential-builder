@@ -180,6 +180,10 @@ pub fn with_endpoints(router: Router<State>) -> Router<State> {
             latest_solution_failures::PATH,
             get(latest_solution_failures::handler),
         )
+        .route(
+            list_solution_failures::PATH,
+            get(list_solution_failures::handler),
+        )
         .route(submit_solution::PATH, post(submit_solution::handler))
 }
 
