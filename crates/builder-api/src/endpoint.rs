@@ -74,7 +74,7 @@ pub mod latest_solution_failures {
 /// The `/list_solution_failures` get endpoint.
 ///
 /// Takes a `start` and a `limit` as a path parameter and returns
-/// at most `limit` of the latest failures for the associated solution.
+/// at most `limit` of the latest failures for all solutions.
 /// Note start counts down from the latest failure.
 /// So the latest failure is at `0`.
 pub mod list_solution_failures {
