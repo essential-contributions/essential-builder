@@ -371,8 +371,9 @@ async fn run_builder(
     let mut interval = tokio::time::interval(block_interval);
     loop {
         interval.tick().await;
-        let summary = build_block_fifo(&builder_conn_pool, &node_conn_pool, &conf).await?;
-        if !summary.succeeded.is_empty() {
+        let (built_block_addr, _summary) =
+            build_block_fifo(&builder_conn_pool, &node_conn_pool, &conf).await?;
+        if built_block_addr.is_some() {
             block_tx.notify();
         }
     }
