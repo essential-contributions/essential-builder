@@ -335,7 +335,8 @@ async fn run(args: Args) -> anyhow::Result<()> {
                     block_tx,
                 )?
                 .join()
-                .await
+                .await?;
+                Ok::<_, anyhow::Error>(())
             }
         }
     };
@@ -370,7 +371,9 @@ async fn run_builder(
     let mut interval = tokio::time::interval(block_interval);
     loop {
         interval.tick().await;
-        let _summary = build_block_fifo(&builder_conn_pool, &node_conn_pool, &conf).await?;
-        block_tx.notify();
+        let summary = build_block_fifo(&builder_conn_pool, &node_conn_pool, &conf).await?;
+        if !summary.succeeded.is_empty() {
+            block_tx.notify();
+        }
     }
 }
