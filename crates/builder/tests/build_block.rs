@@ -54,7 +54,7 @@ async fn build_block_all_solutions_succeed() {
     }
 
     // Build the block.
-    let summary = build_block_fifo(&builder_conn_pool, &node_conn_pool, &builder_config)
+    let (_, summary) = build_block_fifo(&builder_conn_pool, &node_conn_pool, &builder_config)
         .await
         .unwrap();
 
@@ -98,7 +98,7 @@ async fn build_block_all_solutions_fail() {
 
     // Build the block.
     // We haven't inserted any contracts, so all solutions should fail.
-    let summary = build_block_fifo(&builder_conn_pool, &node_conn_pool, &builder_config)
+    let (_, summary) = build_block_fifo(&builder_conn_pool, &node_conn_pool, &builder_config)
         .await
         .unwrap();
 
@@ -136,7 +136,7 @@ async fn build_block_no_solutions() {
     // No solutions are inserted into the builder DB
 
     // Build the block.
-    let summary = build_block_fifo(&builder_conn_pool, &node_conn_pool, &builder_config)
+    let (_, summary) = build_block_fifo(&builder_conn_pool, &node_conn_pool, &builder_config)
         .await
         .unwrap();
 
@@ -183,7 +183,7 @@ async fn build_block_mixed_solutions() {
     }
 
     // Build the block.
-    let summary = build_block_fifo(&builder_conn_pool, &node_conn_pool, &builder_config)
+    let (_, summary) = build_block_fifo(&builder_conn_pool, &node_conn_pool, &builder_config)
         .await
         .unwrap();
 

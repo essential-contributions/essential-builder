@@ -105,8 +105,9 @@ impl Default for Config {
 /// the builder's solution pool. Failed solutions are recorded to the builder's `solution_failure`
 /// table, while the successful solutions can be found in the block.
 ///
-/// An in-memory [`SolutionsSummary`] is returned that describes which solutions succeeded and
-/// which ones failed for convenience.
+/// Returns the address of the block if one was successfully created alongside an in-memory
+/// [`SolutionsSummary`] that describes which solutions succeeded and which ones failed for
+/// convenience.
 ///
 /// # Example
 ///
@@ -131,7 +132,7 @@ pub async fn build_block_fifo(
     builder_conn_pool: &builder_db::ConnectionPool,
     node_conn_pool: &node::db::ConnectionPool,
     conf: &Config,
-) -> Result<SolutionsSummary, BuildBlockError> {
+) -> Result<(Option<ContentAddress>, SolutionsSummary), BuildBlockError> {
     // Retrieve the last block header.
     let last_block_header_opt = node_conn_pool
         .acquire_then(|h| last_block_header(h))
@@ -206,7 +207,8 @@ pub async fn build_block_fifo(
     // If the block is empty, notify that we're skipping the block.
     // FIXME: This uses `<= 1` because the first solution is the block state solution.
     // This should be refactored.
-    if block.solutions.len() <= 1 {
+    let skip_block = block.solutions.len() <= 1;
+    if skip_block {
         #[cfg(feature = "tracing")]
         tracing::debug!("Skipping empty block {}", block_addr);
 
@@ -260,7 +262,8 @@ pub async fn build_block_fifo(
         })
         .await?;
 
-    Ok(summary)
+    let block_addr = if skip_block { None } else { Some(block_addr) };
+    Ok((block_addr, summary))
 }
 
 /// Retrieve the last block number and its timestamp.
