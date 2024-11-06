@@ -27,15 +27,6 @@ async fn test_args() {
     // ran successfully
     assert!(r.is_err());
 
-    // State derivation
-    let mut a = args.clone();
-    a.state_derivation = true;
-
-    let r = tokio::time::timeout(Duration::from_millis(100), run(a)).await;
-    // Error means that the timeout was reached which means that the run
-    // ran successfully
-    assert!(r.is_err());
-
     // validation
     let mut a = args.clone();
     a.validation = true;

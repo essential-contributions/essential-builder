@@ -31,7 +31,7 @@ impl View {
         &self,
         contract: ContentAddress,
         key: Key,
-    ) -> Result<Option<Value>, node::db::AcquireThenQueryError> {
+    ) -> Result<Option<Value>, node::db::pool::AcquireThenQueryError> {
         if let Some((_ix, v)) =
             self.proposed_mutations
                 .query_excl(contract.clone(), key.clone(), self.solution_ix)

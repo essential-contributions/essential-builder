@@ -6,7 +6,7 @@ use essential_builder_db as builder_db;
 use essential_check::solution::CheckPredicateConfig;
 use essential_node as node;
 use essential_node_api as node_api;
-use essential_node_types::BigBang;
+use essential_node_types::{block_notify::BlockTx, BigBang};
 use std::{
     net::{SocketAddr, SocketAddrV4},
     num::NonZero,
@@ -113,7 +113,7 @@ pub struct Args {
     /// The number of simultaneous sqlite DB connections to maintain for serving the API.
     ///
     /// By default, this is the number of available CPUs multiplied by 4.
-    #[arg(long, default_value_t = node::db::Config::default_conn_limit())]
+    #[arg(long, default_value_t = node::db::pool::Config::default_conn_limit())]
     node_db_conn_limit: usize,
 
     // ----- run node -----
@@ -122,9 +122,6 @@ pub struct Args {
     /// If this is `Some`, then the relayer stream will run.
     #[arg(long)]
     relayer_source_endpoint: Option<String>,
-    /// Run the state derivation stream of the node.
-    #[arg(long)]
-    state_derivation: bool,
     /// Run the validation stream of the node.
     #[arg(long)]
     validation: bool,
@@ -179,22 +176,22 @@ fn builder_db_conf_from_args(args: &Args) -> anyhow::Result<builder_db::pool::Co
 }
 
 /// Construct the node's DB config from the parsed args.
-fn node_db_conf_from_args(args: &Args) -> anyhow::Result<node::db::Config> {
+fn node_db_conf_from_args(args: &Args) -> anyhow::Result<node::db::pool::Config> {
     let source = match (&args.node_db, &args.node_db_path) {
         (Db::Memory, None) => {
             let id = format!("__essential-node-db-{}", uuid::Uuid::new_v4());
-            node::db::Source::Memory(id)
+            node::db::pool::Source::Memory(id)
         }
-        (_, Some(path)) => node::db::Source::Path(path.clone()),
+        (_, Some(path)) => node::db::pool::Source::Path(path.clone()),
         (Db::Persistent, None) => {
             let Some(path) = default_node_db_path() else {
                 anyhow::bail!("unable to detect user's data directory for default DB path")
             };
-            node::db::Source::Path(path)
+            node::db::pool::Source::Path(path)
         }
     };
     let conn_limit = args.node_db_conn_limit;
-    let config = node::db::Config { source, conn_limit };
+    let config = node::db::pool::Config { source, conn_limit };
     Ok(config)
 }
 
@@ -216,7 +213,6 @@ fn builder_conf_from_args(args: &Args, big_bang: &BigBang) -> builder::Config {
 fn node_run_conf_from_args(args: &Args) -> node::RunConfig {
     node::RunConfig {
         relayer_source_endpoint: args.relayer_source_endpoint.clone(),
-        run_state_derivation: args.state_derivation,
         run_validation: args.validation,
     }
 }
@@ -261,7 +257,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         tracing::debug!("Node DB config:\n{:#?}", node_db_conf);
         tracing::info!("Initializing node DB");
     }
-    let node_db = node::db(&node_db_conf)?;
+    let node_db = node::db::ConnectionPool::with_tables(&node_db_conf)?;
 
     // Load the big bang configuration, and ensure the big bang block exists.
     let big_bang = load_big_bang_or_default(args.big_bang.as_deref())?;
@@ -270,7 +266,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         .context("failed to ensure big bang block")?;
 
     // Run the node API.
-    let block_tx = node::BlockTx::new();
+    let block_tx = BlockTx::new();
     let block_rx = block_tx.new_listener();
     let api_state = node_api::State {
         new_block: Some(block_rx),
@@ -316,10 +312,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let node_run = {
         let node_db = node_db.clone();
         async move {
-            if node_run_conf.relayer_source_endpoint.is_none()
-                && !node_run_conf.run_state_derivation
-                && !node_run_conf.run_validation
-            {
+            if node_run_conf.relayer_source_endpoint.is_none() && !node_run_conf.run_validation {
                 std::future::pending().await
             } else {
                 node::run(
@@ -354,7 +347,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 async fn run_builder(
     builder_conn_pool: builder_db::ConnectionPool,
     node_conn_pool: node::db::ConnectionPool,
-    block_tx: node::BlockTx,
+    block_tx: BlockTx,
     conf: builder::Config,
     block_interval: Duration,
 ) -> anyhow::Result<()> {

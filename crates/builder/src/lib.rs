@@ -277,21 +277,8 @@ fn last_block_header(
     };
 
     // Retrieve the block's number and timestamp.
-    let number = node_db::get_block_number(conn, &block_ca)?
+    let (number, timestamp) = node_db::get_block_header(conn, &block_ca)?
         .ok_or(LastBlockHeaderError::NoNumberForLastFinalizedBlock)?;
-
-    // FIXME: Change `get_block_number` to `get_block_header` and include timestamp to avoid
-    // needing to list blocks like this.
-    let timestamp = {
-        // We expect 1 block, but check for the error case where we get less than or more than 1.
-        let range = number..number.saturating_add(2);
-        let blocks = node_db::list_blocks(conn, range)?;
-        let mut blocks: Vec<_> = blocks.into_iter().take(2).collect();
-        match blocks.len() {
-            1 => blocks.pop().expect("len is 1").timestamp,
-            _ => return Err(LastBlockHeaderError::NoTimestampForLastFinalizedBlock),
-        }
-    };
 
     Ok(Some((number, timestamp)))
 }

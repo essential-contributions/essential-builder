@@ -40,7 +40,6 @@ pub fn test_solution_data(seed: Word) -> SolutionData {
             predicate,
         },
         decision_variables: vec![],
-        transient_data: vec![],
         state_mutations: vec![],
     }
 }

@@ -17,11 +17,11 @@ async fn test_builder_conn_pool() -> builder_db::ConnectionPool {
 }
 
 async fn test_node_conn_pool() -> node::db::ConnectionPool {
-    let node_conf = node::db::Config {
+    let node_conf = node::db::pool::Config {
         conn_limit: 4,
-        source: node::db::Source::Memory(uuid::Uuid::new_v4().into()),
+        source: node::db::pool::Source::Memory(uuid::Uuid::new_v4().into()),
     };
-    let db = node::db(&node_conf).unwrap();
+    let db = node::db::ConnectionPool::with_tables(&node_conf).unwrap();
     let bb = BigBang::default();
     node::ensure_big_bang_block(&db, &bb).await.unwrap();
     db
