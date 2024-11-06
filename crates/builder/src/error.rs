@@ -18,7 +18,7 @@ pub enum BuildBlockError {
     BuilderRusqlite(#[from] builder_db::error::AcquireThenRusqliteError),
     /// A node DB rusqlite error occurred.
     #[error("A node DB rusqlite error occurred: {0}")]
-    NodeRusqlite(#[from] node::db::AcquireThenRusqliteError),
+    NodeRusqlite(#[from] node::db::pool::AcquireThenRusqliteError),
     /// Failed to check and apply a sequence of solutions.
     #[error("Failed to check and apply solutions: {0}")]
     CheckSolutions(#[from] CheckSolutionsError),
@@ -30,7 +30,7 @@ pub enum BuildBlockError {
     TimestampOutOfRange,
     /// Failed to retrieve the last block header.
     #[error("Failed to retrieve the last block header")]
-    LastBlockHeader(#[from] node::db::AcquireThenError<LastBlockHeaderError>),
+    LastBlockHeader(#[from] node::db::pool::AcquireThenError<LastBlockHeaderError>),
     /// The next block number would be out of `u64` range.
     #[error("The next block number would be out of `u64` range")]
     BlockNumberOutOfRange,
@@ -69,7 +69,7 @@ pub enum CheckSolutionError {
     Rusqlite(#[from] rusqlite::Error),
     /// A node DB query failed.
     #[error("a node DB query failed: {0}")]
-    NodeQuery(#[from] node::db::AcquireThenQueryError),
+    NodeQuery(#[from] node::db::pool::AcquireThenQueryError),
 }
 
 /// An error occurred while fetching a solution's predicates.
@@ -106,7 +106,7 @@ pub enum InvalidSolution {
 pub enum StateReadError {
     /// A state query to the underlying DB connection pool failed.
     #[error("a state query failed: {0}")]
-    Query(#[from] node::db::AcquireThenQueryError),
+    Query(#[from] node::db::pool::AcquireThenQueryError),
     /// No entry exists for the given key.
     #[error("No entry exists for the given key {0:?}")]
     NoEntry(Key),
@@ -120,7 +120,7 @@ pub enum StateReadError {
 pub enum QueryPredicateError {
     /// A DB query failure occurred.
     #[error("failed to query the node DB: {0}")]
-    ConnPoolQuery(#[from] node::db::AcquireThenQueryError),
+    ConnPoolQuery(#[from] node::db::pool::AcquireThenQueryError),
     /// The queried predicate is missing the word that encodes its length.
     #[error("the queried predicate is missing the word that encodes its length")]
     MissingLenBytes,
