@@ -1,6 +1,6 @@
 SELECT
-    solution
+    solution_set
 FROM
-    solution
+    solution_set
 WHERE
     content_addr = :content_addr

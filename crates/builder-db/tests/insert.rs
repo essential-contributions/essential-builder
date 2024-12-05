@@ -1,15 +1,15 @@
 use essential_builder_db as builder_db;
-use essential_builder_types::SolutionFailure;
+use essential_builder_types::SolutionSetFailure;
 use rusqlite::Connection;
 
 mod util;
 
 #[test]
-fn insert_solution_submission() {
-    // Generate some test solutions with unique timestamps, some overlapping.
-    let solutions: Vec<_> = util::test_blocks(100)
+fn insert_solution_set_submission() {
+    // Generate some test solution sets with unique timestamps, some overlapping.
+    let solution_sets: Vec<_> = util::test_blocks(100)
         .into_iter()
-        .flat_map(|b| b.solutions.into_iter().map(move |s| (s, b.timestamp)))
+        .flat_map(|b| b.solution_sets.into_iter().map(move |s| (s, b.timestamp)))
         .collect();
 
     // Create an in-memory SQLite database.
@@ -20,20 +20,20 @@ fn insert_solution_submission() {
     builder_db::create_tables(&tx).unwrap();
     tx.commit().unwrap();
 
-    // Write to solutions.
+    // Write to solution sets.
     let tx = conn.transaction().unwrap();
-    for (solution, timestamp) in &solutions {
-        builder_db::insert_solution_submission(&tx, solution, *timestamp).unwrap();
+    for (solution_set, timestamp) in &solution_sets {
+        builder_db::insert_solution_set_submission(&tx, solution_set, *timestamp).unwrap();
     }
     tx.commit().unwrap();
 }
 
 #[test]
-fn insert_solution_failure() {
-    // Generate a test solution and its content address.
+fn insert_solution_set_failure() {
+    // Generate a test solution set and its content address.
     let blocks = util::test_blocks(1);
-    let solution = blocks[0].solutions[0].clone();
-    let ca = essential_hash::content_addr(&solution);
+    let solution_set = blocks[0].solution_sets[0].clone();
+    let ca = essential_hash::content_addr(&solution_set);
     let block_ca = essential_hash::content_addr(&blocks[0]);
 
     // Create an in-memory SQLite database.
@@ -44,17 +44,17 @@ fn insert_solution_failure() {
     builder_db::create_tables(&tx).unwrap();
     tx.commit().unwrap();
 
-    // Insert a solution failure.
-    let failure = SolutionFailure {
+    // Insert a solution set failure.
+    let failure = SolutionSetFailure {
         attempt_block_num: 1,
         attempt_block_addr: block_ca,
-        attempt_solution_ix: 0,
-        err_msg: "Failed to include solution".into(),
+        attempt_solution_set_ix: 0,
+        err_msg: "Failed to include solution set ".into(),
     };
-    builder_db::insert_solution_failure(&conn, &ca, failure.clone()).unwrap();
+    builder_db::insert_solution_set_failure(&conn, &ca, failure.clone()).unwrap();
 
     // Query the latest failures and check that the inserted failure is retrieved.
-    let failures = builder_db::latest_solution_failures(&conn, &ca, 1).unwrap();
+    let failures = builder_db::latest_solution_set_failures(&conn, &ca, 1).unwrap();
     assert_eq!(failures.len(), 1);
     assert_eq!(failures[0], failure);
 }

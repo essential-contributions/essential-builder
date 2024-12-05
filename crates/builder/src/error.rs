@@ -4,7 +4,7 @@ use essential_builder_db as builder_db;
 use essential_check::solution::PredicatesError;
 use essential_node as node;
 use essential_node_db as node_db;
-use essential_types::{predicate::header::DecodeError, ContentAddress, Key};
+use essential_types::{predicate::PredicateDecodeError, ContentAddress, Key};
 use thiserror::Error;
 
 /// Any errors that might occur within [`crate::build_block_fifo`].
@@ -19,9 +19,9 @@ pub enum BuildBlockError {
     /// A node DB rusqlite error occurred.
     #[error("A node DB rusqlite error occurred: {0}")]
     NodeRusqlite(#[from] node::db::pool::AcquireThenRusqliteError),
-    /// Failed to check and apply a sequence of solutions.
-    #[error("Failed to check and apply solutions: {0}")]
-    CheckSolutions(#[from] CheckSolutionsError),
+    /// Failed to check and apply a sequence of solution sets.
+    #[error("Failed to check and apply solution sets: {0}")]
+    CheckSets(#[from] CheckSetsError),
     /// System time produced a non-monotonic timestamp.
     #[error("System time produced non-monotonic timestamp")]
     TimestampNotMonotonic,
@@ -53,17 +53,17 @@ pub enum LastBlockHeaderError {
     NoTimestampForLastFinalizedBlock,
 }
 
-/// Any errors that might occur within `check_solutions`.
+/// Any errors that might occur within `check_sets`.
 #[derive(Debug, Error)]
-pub enum CheckSolutionsError {
-    /// An error occurred while checking a single solution.
-    #[error("an error occurred while attempting to apply a solution: {0}")]
-    CheckSolution(#[from] CheckSolutionError),
+pub enum CheckSetsError {
+    /// An error occurred while checking a solution set.
+    #[error("an error occurred while attempting to apply a set: {0}")]
+    CheckSolution(#[from] CheckSetError),
 }
 
-/// Any errors that might occur within `crate::check_solution`.
+/// Any errors that might occur within `crate::check_set`.
 #[derive(Debug, Error)]
-pub enum CheckSolutionError {
+pub enum CheckSetError {
     /// A rusqlite error occurred.
     #[error("a rusqlite error occurred: {0}")]
     Rusqlite(#[from] rusqlite::Error),
@@ -72,9 +72,9 @@ pub enum CheckSolutionError {
     NodeQuery(#[from] node::db::pool::AcquireThenQueryError),
 }
 
-/// An error occurred while fetching a solution's predicates.
+/// An error occurred while fetching a solution set's predicates.
 #[derive(Debug, Error)]
-pub enum SolutionPredicatesError {
+pub enum SetPredicatesError {
     /// An error occurred while querying the node DB.
     #[error("an error occurred while querying for a predicate from the node DB: {0}")]
     QueryPredicate(#[from] QueryPredicateError),
@@ -83,20 +83,40 @@ pub enum SolutionPredicatesError {
     PredicateDoesNotExist(ContentAddress),
 }
 
-/// Represents the reason why a [`Solution`][essential_types::solution::Solution] is invalid.
+/// An error occurred while fetching a predicate's programs.
 #[derive(Debug, Error)]
-pub enum InvalidSolution {
-    /// Solution specified a predicate to solve that does not exist.
-    #[error("Solution specified a predicate to solve that does not exist")]
+pub enum PredicateProgramsError {
+    /// An error occurred while querying the node DB.
+    #[error("an error occurred while querying for a program from the node DB: {0}")]
+    QueryProgram(#[from] QueryProgramError),
+    /// The node DB is missing a required predicate.
+    #[error("the node DB is missing a required program ({0})")]
+    ProgramDoesNotExist(ContentAddress),
+}
+
+/// Represents the reason why a [`SolutionSet`][essential_types::solution::SolutionSet] is invalid.
+#[derive(Debug, Error)]
+pub enum InvalidSet {
+    /// Solution set specified a predicate to solve that does not exist.
+    #[error("Solution set specified a predicate to solve that does not exist")]
     PredicateDoesNotExist(ContentAddress),
-    /// Solution specified a predicate that exists, but was invalid when reading from contract
+    /// Solution set contains a predicate that specified a program that does not exist.
+    #[error("Solution set contains a predicate that specified a program that does not exist")]
+    ProgramDoesNotExist(ContentAddress),
+    /// Solution set specified a predicate that exists, but was invalid when reading from contract
     /// registry state.
     #[error(
-        "Solution specified a predicate that was invalid when reading from contract registry state"
+        "Solution set specified a predicate that was invalid when reading from contract registry state"
     )]
     PredicateInvalid,
-    /// Validation of the solution predicates failed.
-    #[error("Validation of the solution predicates failed: {0}")]
+    /// Solution set contains a predicate that specified a program that exists,
+    /// but was invalid when reading from program registry state.
+    #[error(
+        "Solution set contains a predicate that specified a program that was invalid when reading from program registry state"
+    )]
+    ProgramInvalid,
+    /// Validation of the solution set predicates failed.
+    #[error("Validation of the solution set predicates failed: {0}")]
     Predicates(PredicatesError<StateReadError>),
 }
 
@@ -129,5 +149,19 @@ pub enum QueryPredicateError {
     InvalidLenBytes,
     /// Failed to decode the queried predicate.
     #[error("failed to decode the queried predicate: {0}")]
-    Decode(#[from] DecodeError),
+    Decode(#[from] PredicateDecodeError),
+}
+
+/// Any errors that might occur while querying for programs.
+#[derive(Debug, Error)]
+pub enum QueryProgramError {
+    /// A DB query failure occurred.
+    #[error("failed to query the node DB: {0}")]
+    ConnPoolQuery(#[from] node::db::pool::AcquireThenQueryError),
+    /// The queried program is missing the word that encodes its length.
+    #[error("the queried program is missing the word that encodes its length")]
+    MissingLenBytes,
+    /// The queried program length was invalid.
+    #[error("the queried program length was invalid")]
+    InvalidLenBytes,
 }

@@ -177,14 +177,17 @@ pub fn with_endpoints(router: Router<State>) -> Router<State> {
     router
         .route(health_check::PATH, get(health_check::handler))
         .route(
-            latest_solution_failures::PATH,
-            get(latest_solution_failures::handler),
+            latest_solution_set_failures::PATH,
+            get(latest_solution_set_failures::handler),
         )
         .route(
-            list_solution_failures::PATH,
-            get(list_solution_failures::handler),
+            list_solution_set_failures::PATH,
+            get(list_solution_set_failures::handler),
         )
-        .route(submit_solution::PATH, post(submit_solution::handler))
+        .route(
+            submit_solution_set::PATH,
+            post(submit_solution_set::handler),
+        )
 }
 
 /// The default CORS layer.

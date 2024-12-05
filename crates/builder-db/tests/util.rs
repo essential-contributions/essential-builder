@@ -3,9 +3,9 @@
 use essential_hash::content_addr;
 use essential_types::{
     contract::Contract,
-    predicate::Predicate,
-    solution::{Solution, SolutionData},
-    Block, ConstraintBytecode, ContentAddress, PredicateAddress, StateReadBytecode, Word,
+    predicate::{Edge, Node, Reads},
+    solution::{Solution, SolutionSet},
+    Block, ContentAddress, Predicate, PredicateAddress, Program, Word,
 };
 use std::time::Duration;
 
@@ -20,26 +20,26 @@ pub fn test_block(number: Word, timestamp: Duration) -> Block {
     Block {
         number,
         timestamp,
-        solutions: (0..3).map(|i| test_solution(seed * (1 + i))).collect(),
+        solution_sets: (0..3).map(|i| test_solution_set(seed * (1 + i))).collect(),
+    }
+}
+
+pub fn test_solution_set(seed: Word) -> SolutionSet {
+    SolutionSet {
+        solutions: vec![test_solution(seed)],
     }
 }
 
 pub fn test_solution(seed: Word) -> Solution {
-    Solution {
-        data: vec![test_solution_data(seed)],
-    }
-}
-
-pub fn test_solution_data(seed: Word) -> SolutionData {
     let contract = test_contract(seed);
     let predicate = essential_hash::content_addr(&contract.predicates[0]);
     let contract = essential_hash::content_addr(&contract);
-    SolutionData {
+    Solution {
         predicate_to_solve: PredicateAddress {
             contract,
             predicate,
         },
-        decision_variables: vec![],
+        predicate_data: vec![],
         state_mutations: vec![],
     }
 }
@@ -64,30 +64,47 @@ pub fn test_contract(seed: Word) -> Contract {
 }
 
 pub fn test_predicate(seed: Word) -> Predicate {
-    Predicate {
-        state_read: test_state_reads(seed),
-        constraints: test_constraints(seed),
-    }
-}
+    use essential_check::vm::asm::{self, short::*};
 
-// Resulting bytecode is invalid, but this is just for testing DB behaviour, not validation.
-pub fn test_state_reads(seed: Word) -> Vec<StateReadBytecode> {
-    let n = (1 + seed % 3) as usize;
-    let b = (seed % u8::MAX as Word) as u8;
-    vec![vec![b; 10]; n]
-}
+    let a = Program(asm::to_bytes([PUSH(1), PUSH(2), PUSH(3), HLT]).collect());
+    let b = Program(asm::to_bytes([PUSH(seed), HLT]).collect());
+    let c = Program(
+        asm::to_bytes([
+            // Stack should already have `[1, 2, 3, seed]`.
+            PUSH(1),
+            PUSH(2),
+            PUSH(3),
+            PUSH(seed),
+            // a `len` for `EqRange`.
+            PUSH(4), // EqRange len
+            EQRA,
+            HLT,
+        ])
+        .collect(),
+    );
 
-// Resulting bytecode is invalid, but this is just for testing DB behaviour, not validation.
-pub fn test_constraints(seed: Word) -> Vec<ConstraintBytecode> {
-    let n = (1 + seed % 3) as usize;
-    let b = (seed % u8::MAX as Word) as u8;
-    vec![vec![b; 10]; n]
+    let a_ca = content_addr(&a);
+    let b_ca = content_addr(&b);
+    let c_ca = content_addr(&c);
+
+    let node = |program_address, edge_start| Node {
+        program_address,
+        edge_start,
+        reads: Reads::Pre, // unused for this test.
+    };
+    let nodes = vec![
+        node(a_ca.clone(), 0),
+        node(b_ca.clone(), 1),
+        node(c_ca.clone(), Edge::MAX),
+    ];
+    let edges = vec![2, 2];
+    Predicate { nodes, edges }
 }
 
 pub fn get_block_address(i: Word) -> ContentAddress {
     content_addr(&Block {
         number: i,
         timestamp: Default::default(),
-        solutions: Default::default(),
+        solution_sets: Default::default(),
     })
 }

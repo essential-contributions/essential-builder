@@ -1,5 +1,5 @@
 use essential_builder_api as builder_api;
-use essential_builder_types::SolutionFailure;
+use essential_builder_types::SolutionSetFailure;
 use essential_node::test_utils as test_util;
 use essential_types::ContentAddress;
 use std::{sync::Arc, time::Duration};
@@ -23,90 +23,93 @@ async fn test_health_check() {
 }
 
 #[tokio::test]
-async fn test_submit_solution() {
+async fn test_submit_solution_set() {
     #[cfg(feature = "tracing")]
     init_tracing_subscriber();
 
     let db = test_conn_pool();
 
-    // Generate and insert test solutions
-    let (blocks, _contracts) = test_util::test_blocks(100);
-    let solutions = blocks
+    // Generate and insert test solution sets
+    let (blocks, _contracts, _programs) = test_util::test_blocks(100);
+    let solution_sets = blocks
         .into_iter()
-        .flat_map(|block| block.solutions)
+        .flat_map(|block| block.solution_sets)
         .map(Arc::new)
         .collect::<Vec<_>>();
 
-    // Submit all of the solutions via the API.
-    let solutions2 = solutions.clone();
+    // Submit all of the solution sets via the API.
+    let solution_sets2 = solution_sets.clone();
     with_test_server(state(db.clone()), |port| async move {
-        // Submit all of the solutions.
-        for solution in solutions2 {
-            let solution_ca = essential_hash::content_addr(&*solution);
+        // Submit all of the solution sets.
+        for solution_set in solution_sets2 {
+            let solution_set_ca = essential_hash::content_addr(&*solution_set);
             let response = client()
-                .post(get_url(port, builder_api::endpoint::submit_solution::PATH))
-                .json(&*solution)
+                .post(get_url(
+                    port,
+                    builder_api::endpoint::submit_solution_set::PATH,
+                ))
+                .json(&*solution_set)
                 .send()
                 .await
                 .unwrap();
             assert_eq!(response.status(), 200);
             assert_eq!(
-                solution_ca,
+                solution_set_ca,
                 response.json::<ContentAddress>().await.unwrap()
             );
         }
     })
     .await;
 
-    // List all the solutions from the DB to check they're there.
+    // List all the solution sets from the DB to check they're there.
     let min = Duration::ZERO;
     let max = Duration::from_secs(i64::MAX as u64);
     let range = min..max;
     let limit = i64::MAX;
-    let fetched_solutions = db.list_solutions(range, limit).await.unwrap();
-    for (sol, (_ca, fetched_sol, _ts)) in solutions.into_iter().zip(fetched_solutions) {
-        assert_eq!(*sol, fetched_sol);
+    let fetched_solution_sets = db.list_solution_sets(range, limit).await.unwrap();
+    for (set, (_ca, fetched_set, _ts)) in solution_sets.into_iter().zip(fetched_solution_sets) {
+        assert_eq!(*set, fetched_set);
     }
 }
 
 #[tokio::test]
-async fn test_latest_solution_failures() {
+async fn test_latest_solution_set_failures() {
     #[cfg(feature = "tracing")]
     init_tracing_subscriber();
 
     let db = test_conn_pool();
 
-    // Fake some solution failures.
+    // Fake some solution set failures.
     const N_FAILURES: i64 = 3;
-    let solution_cas: Vec<_> = (0..N_FAILURES)
+    let solution_set_cas: Vec<_> = (0..N_FAILURES)
         .map(|i| ContentAddress([i as u8; 32]))
         .collect();
     let failures: Vec<_> = (0..N_FAILURES)
-        .map(|i| SolutionFailure {
+        .map(|i| SolutionSetFailure {
             attempt_block_num: i,
             attempt_block_addr: ContentAddress([i as u8; 32]),
-            attempt_solution_ix: 0,
+            attempt_solution_set_ix: 0,
             err_msg: format!("failure {i}").into(),
         })
         .collect();
 
     // Insert them into the DB so that they're queryable.
-    for (solution_ca, failure) in solution_cas.iter().zip(&failures) {
-        db.insert_solution_failure(solution_ca.clone(), failure.clone())
+    for (solution_set_ca, failure) in solution_set_cas.iter().zip(&failures) {
+        db.insert_solution_set_failure(solution_set_ca.clone(), failure.clone())
             .await
             .unwrap();
     }
 
-    // Submit all of the solutions via the API.
+    // Submit all of the solution sets via the API.
     let fetched_failures = with_test_server(state(db.clone()), |port| async move {
         let mut failures = vec![];
-        for ca in solution_cas {
+        for ca in solution_set_cas {
             let limit = 1;
             let response =
-                reqwest_get(port, &format!("/latest-solution-failures/{ca}/{limit}")).await;
+                reqwest_get(port, &format!("/latest-solution-set-failures/{ca}/{limit}")).await;
             assert_eq!(response.status(), 200);
             let failure = response
-                .json::<Vec<SolutionFailure<'static>>>()
+                .json::<Vec<SolutionSetFailure<'static>>>()
                 .await
                 .unwrap();
             failures.extend(failure);
@@ -122,43 +125,46 @@ async fn test_latest_solution_failures() {
 }
 
 #[tokio::test]
-async fn test_list_solution_failures() {
+async fn test_list_solution_set_failures() {
     #[cfg(feature = "tracing")]
     init_tracing_subscriber();
 
     let db = test_conn_pool();
 
-    // Fake some solution failures.
+    // Fake some solution set failures.
     const N_FAILURES: i64 = 3;
-    let solution_cas: Vec<_> = (0..N_FAILURES)
+    let solution_set_cas: Vec<_> = (0..N_FAILURES)
         .map(|i| ContentAddress([i as u8; 32]))
         .collect();
     let failures: Vec<_> = (0..N_FAILURES)
-        .map(|i| SolutionFailure {
+        .map(|i| SolutionSetFailure {
             attempt_block_num: i,
             attempt_block_addr: ContentAddress([i as u8; 32]),
-            attempt_solution_ix: 0,
+            attempt_solution_set_ix: 0,
             err_msg: format!("failure {i}").into(),
         })
         .collect();
 
     // Insert them into the DB so that they're queryable.
-    for (solution_ca, failure) in solution_cas.iter().zip(&failures) {
-        db.insert_solution_failure(solution_ca.clone(), failure.clone())
+    for (solution_set_ca, failure) in solution_set_cas.iter().zip(&failures) {
+        db.insert_solution_set_failure(solution_set_ca.clone(), failure.clone())
             .await
             .unwrap();
     }
 
-    // Submit all of the solutions via the API.
+    // Submit all of the solution sets via the API.
     let fetched_failures = with_test_server(state(db.clone()), |port| async move {
         let mut failures = vec![];
-        for (start, _) in solution_cas.iter().enumerate() {
+        for (start, _) in solution_set_cas.iter().enumerate() {
             let limit = 1;
-            let response =
-                reqwest_get(port, &format!("/list-solution-failures/{start}/{limit}")).await;
+            let response = reqwest_get(
+                port,
+                &format!("/list-solution-set-failures/{start}/{limit}"),
+            )
+            .await;
             assert_eq!(response.status(), 200);
             let failure = response
-                .json::<Vec<SolutionFailure<'static>>>()
+                .json::<Vec<SolutionSetFailure<'static>>>()
                 .await
                 .unwrap();
             failures.extend(failure);

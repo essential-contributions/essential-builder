@@ -16,13 +16,13 @@ anyhow = "1"
 axum = "0.7.5"
 clap = { version = "4.5", features = ["derive"] }
 dirs = "5"
-essential-check = "0.9.0"
-essential-hash = "0.7.0"
-essential-node = "0.8.0"
-essential-node-api = "0.8.0"
-essential-node-db = "0.4.0"
-essential-node-types = "0.2.0"
-essential-types = "0.5.0"
+essential-check = { git = "https://github.com/essential-contributions/essential-base.git", branch = "main" }
+essential-hash = { git = "https://github.com/essential-contributions/essential-base.git", branch = "main" }
+essential-node = { git = "https://github.com/essential-contributions/essential-node.git", branch = "supiket/hash-out-addr-in" }
+essential-node-api = { git = "https://github.com/essential-contributions/essential-node.git", branch = "supiket/hash-out-addr-in" }
+essential-node-db = { git = "https://github.com/essential-contributions/essential-node.git", branch = "supiket/hash-out-addr-in" }
+essential-node-types = { git = "https://github.com/essential-contributions/essential-node.git", branch = "supiket/hash-out-addr-in" }
+essential-types = { git = "https://github.com/essential-contributions/essential-base.git", branch = "main" }
 futures = "0.3.30"
 hex = "0.4.3"
 http = "1.1.0"

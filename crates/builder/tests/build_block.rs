@@ -2,7 +2,7 @@ use essential_builder::{build_block_fifo, Config};
 use essential_builder_db as builder_db;
 use essential_node::{self as node, test_utils as util};
 use essential_node_types::{register_contract_solution, BigBang};
-use essential_types::solution::Solution;
+use essential_types::solution::SolutionSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,7 +28,7 @@ async fn test_node_conn_pool() -> node::db::ConnectionPool {
 }
 
 #[tokio::test]
-async fn build_block_all_solutions_succeed() {
+async fn build_block_all_solution_sets_succeed() {
     // Setup test configuration
     let builder_config = Config::default();
 
@@ -36,19 +36,19 @@ async fn build_block_all_solutions_succeed() {
     let builder_conn_pool = test_builder_conn_pool().await;
     let node_conn_pool = test_node_conn_pool().await;
 
-    // Generate and insert test solutions
+    // Generate and insert test solution sets
     let blocks = util::test_blocks_with_contracts(1, 101);
-    let solutions = blocks
+    let solution_sets = blocks
         .into_iter()
-        .flat_map(|block| block.solutions)
+        .flat_map(|block| block.solution_sets)
         .map(Arc::new)
         .collect::<Vec<_>>();
 
-    // Insert solutions into the builder DB
-    for solution in &solutions {
+    // Insert solution sets into the builder DB
+    for solution_set in &solution_sets {
         let submission_timestamp = Duration::from_secs(0);
         builder_conn_pool
-            .insert_solution_submission(solution.clone(), submission_timestamp)
+            .insert_solution_set_submission(solution_set.clone(), submission_timestamp)
             .await
             .unwrap();
     }
@@ -58,20 +58,20 @@ async fn build_block_all_solutions_succeed() {
         .await
         .unwrap();
 
-    // Check that all solutions succeeded
-    assert_eq!(summary.succeeded.len(), solutions.len() + 1);
+    // Check that all solution sets succeeded
+    assert_eq!(summary.succeeded.len(), solution_sets.len() + 1);
     assert_eq!(summary.failed.len(), 0);
 
-    // Check that the solutions were deleted after being used
-    let remaining_solutions = builder_conn_pool
-        .list_solutions(Duration::ZERO..Duration::from_secs(i64::MAX as _), i64::MAX)
+    // Check that the solution sets were deleted after being used
+    let remaining_solution_sets = builder_conn_pool
+        .list_solution_sets(Duration::ZERO..Duration::from_secs(i64::MAX as _), i64::MAX)
         .await
         .unwrap();
-    assert!(remaining_solutions.is_empty());
+    assert!(remaining_solution_sets.is_empty());
 }
 
 #[tokio::test]
-async fn build_block_all_solutions_fail() {
+async fn build_block_all_solution_sets_fail() {
     // Setup test configuration
     let builder_config = Config::default();
 
@@ -79,53 +79,53 @@ async fn build_block_all_solutions_fail() {
     let builder_conn_pool = test_builder_conn_pool().await;
     let node_conn_pool = test_node_conn_pool().await;
 
-    // Generate and insert test solutions that will fail (mock failing conditions)
-    let (blocks, _contracts) = util::test_blocks(100);
-    let solutions = blocks
+    // Generate and insert test solution sets that will fail (mock failing conditions)
+    let (blocks, _contracts, _programs) = util::test_blocks(100);
+    let solution_sets = blocks
         .into_iter()
-        .flat_map(|block| block.solutions)
+        .flat_map(|block| block.solution_sets)
         .map(Arc::new)
         .collect::<Vec<_>>();
 
-    // Insert solutions into the builder DB
-    for solution in &solutions {
+    // Insert solution sets into the builder DB
+    for solution_set in &solution_sets {
         let timestamp = Duration::from_secs(0); // Use a fixed timestamp for simplicity
         builder_conn_pool
-            .insert_solution_submission(solution.clone(), timestamp)
+            .insert_solution_set_submission(solution_set.clone(), timestamp)
             .await
             .unwrap();
     }
 
     // Build the block.
-    // We haven't inserted any contracts, so all solutions should fail.
+    // We haven't inserted any contracts, so all solution sets should fail.
     let (_, summary) = build_block_fifo(&builder_conn_pool, &node_conn_pool, &builder_config)
         .await
         .unwrap();
 
-    // Check that all solutions failed
-    assert_eq!(summary.failed.len(), solutions.len());
-    assert_eq!(summary.succeeded.len(), 1); // Only the block state solution succeeds.
+    // Check that all solution sets failed
+    assert_eq!(summary.failed.len(), solution_sets.len());
+    assert_eq!(summary.succeeded.len(), 1); // Only the block state solution set succeeds.
 
-    // Check that solution failures are recorded
-    for (ca, solution_ix, _invalid_solution) in summary.failed {
+    // Check that solution set failures are recorded
+    for (ca, solution_set_ix, _invalid_solution_set) in summary.failed {
         let failures = builder_conn_pool
-            .latest_solution_failures(ca.clone(), 1)
+            .latest_solution_set_failures(ca.clone(), 1)
             .await
             .unwrap();
         assert_eq!(failures.len(), 1);
-        assert_eq!(failures[0].attempt_solution_ix, solution_ix);
+        assert_eq!(failures[0].attempt_solution_set_ix, solution_set_ix);
     }
 
-    // Check that the solutions were deleted after being attempted
-    let remaining_solutions = builder_conn_pool
-        .list_solutions(Duration::ZERO..Duration::from_secs(i64::MAX as _), i64::MAX)
+    // Check that the solution sets were deleted after being attempted
+    let remaining_solution_sets = builder_conn_pool
+        .list_solution_sets(Duration::ZERO..Duration::from_secs(i64::MAX as _), i64::MAX)
         .await
         .unwrap();
-    assert!(remaining_solutions.is_empty());
+    assert!(remaining_solution_sets.is_empty());
 }
 
 #[tokio::test]
-async fn build_block_no_solutions() {
+async fn build_block_no_solution_sets() {
     // Setup test configuration
     let builder_config = Config::default();
 
@@ -133,20 +133,21 @@ async fn build_block_no_solutions() {
     let builder_conn_pool = test_builder_conn_pool().await;
     let node_conn_pool = test_node_conn_pool().await;
 
-    // No solutions are inserted into the builder DB
+    // No solution sets are inserted into the builder DB
 
     // Build the block.
     let (_, summary) = build_block_fifo(&builder_conn_pool, &node_conn_pool, &builder_config)
         .await
         .unwrap();
 
-    // Check that there are no succeeded or failed solutions besides the block state solution.
+    // Check that there are no succeeded or failed solution sets besides the block state solution
+    // set.
     assert_eq!(summary.succeeded.len(), 1);
     assert_eq!(summary.failed.len(), 0);
 }
 
 #[tokio::test]
-async fn build_block_mixed_solutions() {
+async fn build_block_mixed_solution_sets() {
     // Setup test configuration
     let builder_config = Config::default();
 
@@ -155,29 +156,31 @@ async fn build_block_mixed_solutions() {
     let node_conn_pool = test_node_conn_pool().await;
     let registry = BigBang::default().contract_registry;
 
-    // Generate and insert test solutions, some of which will fail and others will succeed
-    let (blocks, contracts) = util::test_blocks(10);
-    let solutions = blocks
+    // Generate and insert test solution sets, some of which will fail and others will succeed
+    let (blocks, contracts, _programs) = util::test_blocks(10);
+    let solution_sets = blocks
         .into_iter()
         .enumerate()
         .flat_map(|(i, mut block)| {
-            // Only for the 3rd solution include its contract so that one solution succeeds.
+            // Only for the 3rd solution set include its contract so that one solution set succeeds.
             let ix = 2;
             if i == ix {
                 let sol = register_contract_solution(registry.clone(), &contracts[ix]).unwrap();
-                let solution = Solution { data: vec![sol] };
-                block.solutions.insert(0, solution);
+                let solution_set = SolutionSet {
+                    solutions: vec![sol],
+                };
+                block.solution_sets.insert(0, solution_set);
             }
-            block.solutions
+            block.solution_sets
         })
         .map(Arc::new)
         .collect::<Vec<_>>();
 
-    // Insert solutions into the builder DB
-    for solution in &solutions {
+    // Insert solution sets into the builder DB
+    for solution_set in &solution_sets {
         let timestamp = Duration::from_secs(0); // Use a fixed timestamp for simplicity
         builder_conn_pool
-            .insert_solution_submission(solution.clone(), timestamp)
+            .insert_solution_set_submission(solution_set.clone(), timestamp)
             .await
             .unwrap();
     }
@@ -187,24 +190,24 @@ async fn build_block_mixed_solutions() {
         .await
         .unwrap();
 
-    // Check that some solutions succeeded and some failed
+    // Check that some solution sets succeeded and some failed
     assert!(!summary.succeeded.is_empty());
     assert!(!summary.failed.is_empty());
 
-    // Check that solution failures are recorded for the failed ones
-    for (ca, solution_ix, _invalid_solution) in summary.failed {
+    // Check that solution set failures are recorded for the failed ones
+    for (ca, solution_set_ix, _invalid_solution_set) in summary.failed {
         let failures = builder_conn_pool
-            .latest_solution_failures(ca, 1)
+            .latest_solution_set_failures(ca, 1)
             .await
             .unwrap();
         assert_eq!(failures.len(), 1);
-        assert_eq!(failures[0].attempt_solution_ix, solution_ix);
+        assert_eq!(failures[0].attempt_solution_set_ix, solution_set_ix);
     }
 
-    // Check that the solutions were deleted after being attempted
-    let remaining_solutions = builder_conn_pool
-        .list_solutions(Duration::ZERO..Duration::from_secs(i64::MAX as _), i64::MAX)
+    // Check that the solution sets were deleted after being attempted
+    let remaining_solution_sets = builder_conn_pool
+        .list_solution_sets(Duration::ZERO..Duration::from_secs(i64::MAX as _), i64::MAX)
         .await
         .unwrap();
-    assert!(remaining_solutions.is_empty());
+    assert!(remaining_solution_sets.is_empty());
 }
