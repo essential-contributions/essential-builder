@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
 use essential_hash::content_addr;
+use essential_node_types::{Block, BlockHeader};
 use essential_types::{
     contract::Contract,
     predicate::{Edge, Node, Reads},
     solution::{Solution, SolutionSet},
-    Block, ContentAddress, Predicate, PredicateAddress, Program, Word,
+    ContentAddress, Predicate, PredicateAddress, Program, Word,
 };
 use std::time::Duration;
 
@@ -18,8 +19,7 @@ pub fn test_blocks(n: Word) -> Vec<Block> {
 pub fn test_block(number: Word, timestamp: Duration) -> Block {
     let seed = number * 79;
     Block {
-        number,
-        timestamp,
+        header: BlockHeader { number, timestamp },
         solution_sets: (0..3).map(|i| test_solution_set(seed * (1 + i))).collect(),
     }
 }
@@ -103,8 +103,10 @@ pub fn test_predicate(seed: Word) -> Predicate {
 
 pub fn get_block_address(i: Word) -> ContentAddress {
     content_addr(&Block {
-        number: i,
-        timestamp: Default::default(),
+        header: BlockHeader {
+            number: i,
+            timestamp: Default::default(),
+        },
         solution_sets: Default::default(),
     })
 }

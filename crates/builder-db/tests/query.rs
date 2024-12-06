@@ -10,7 +10,11 @@ fn get_solution_set() {
     // Generate some test solution sets with unique timestamps, some overlapping.
     let solution_sets: Vec<_> = util::test_blocks(10)
         .into_iter()
-        .flat_map(|b| b.solution_sets.into_iter().map(move |s| (s, b.timestamp)))
+        .flat_map(|b| {
+            b.solution_sets
+                .into_iter()
+                .map(move |s| (s, b.header.timestamp))
+        })
         .collect();
 
     // Create an in-memory SQLite database.
@@ -37,7 +41,11 @@ fn list_solution_sets() {
     // Generate some test solution sets with unique timestamps and corresponding blobs.
     let solution_sets: Vec<_> = util::test_blocks(10)
         .into_iter()
-        .flat_map(|b| b.solution_sets.into_iter().map(move |s| (s, b.timestamp)))
+        .flat_map(|b| {
+            b.solution_sets
+                .into_iter()
+                .map(move |s| (s, b.header.timestamp))
+        })
         .collect();
 
     // Create an in-memory SQLite database.
@@ -97,7 +105,11 @@ fn list_submissions() {
     // Generate some test solution sets with unique timestamps, some overlapping.
     let solution_sets: Vec<_> = util::test_blocks(10)
         .into_iter()
-        .flat_map(|b| b.solution_sets.into_iter().map(move |s| (s, b.timestamp)))
+        .flat_map(|b| {
+            b.solution_sets
+                .into_iter()
+                .map(move |s| (s, b.header.timestamp))
+        })
         .collect();
 
     // Create an in-memory SQLite database.
@@ -178,7 +190,7 @@ fn latest_solution_set_failures() {
     // Create the necessary tables.
     let tx = conn.transaction().unwrap();
     builder_db::create_tables(&tx).unwrap();
-    builder_db::insert_solution_set_submission(&tx, &solution_set, block.timestamp).unwrap();
+    builder_db::insert_solution_set_submission(&tx, &solution_set, block.header.timestamp).unwrap();
     tx.commit().unwrap();
 
     // Insert multiple solution set failures.
@@ -227,7 +239,7 @@ fn list_solution_set_failures() {
     // Create the necessary tables.
     let tx = conn.transaction().unwrap();
     builder_db::create_tables(&tx).unwrap();
-    builder_db::insert_solution_set_submission(&tx, &solution_set, block.timestamp).unwrap();
+    builder_db::insert_solution_set_submission(&tx, &solution_set, block.header.timestamp).unwrap();
     tx.commit().unwrap();
 
     // Insert multiple solution set failures.

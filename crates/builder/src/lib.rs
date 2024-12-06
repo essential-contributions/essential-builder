@@ -11,11 +11,11 @@ use essential_builder_types::SolutionSetFailure;
 use essential_check::{self as check, solution::CheckPredicateConfig, vm::Gas};
 pub use essential_node as node;
 use essential_node_db as node_db;
-use essential_node_types::{block_state_solution, BigBang};
+use essential_node_types::{block_state_solution, BigBang, Block, BlockHeader};
 use essential_types::{
     predicate::Predicate,
     solution::{Solution, SolutionSet},
-    Block, ContentAddress, PredicateAddress, Program, Word,
+    ContentAddress, PredicateAddress, Program, Word,
 };
 use std::{collections::HashMap, num::NonZero, ops::Range, sync::Arc, time::Duration};
 
@@ -149,7 +149,10 @@ pub async fn build_block_fifo(
     // Determine the block number for this block.
     let block_number = match last_block_header_opt {
         None => 0,
-        Some((last_block_num, last_block_ts)) => {
+        Some(BlockHeader {
+            number: last_block_num,
+            timestamp: last_block_ts,
+        }) => {
             let block_num = last_block_num
                 .checked_add(1)
                 .ok_or(BuildBlockError::BlockNumberOutOfRange)?;
@@ -194,8 +197,10 @@ pub async fn build_block_fifo(
 
     // Construct the block.
     let block = Block {
-        number: block_number,
-        timestamp: block_timestamp,
+        header: BlockHeader {
+            number: block_number,
+            timestamp: block_timestamp,
+        },
         solution_sets: solution_sets
             .into_iter()
             .map(Arc::unwrap_or_clone)
@@ -207,7 +212,7 @@ pub async fn build_block_fifo(
         "Built block {} with {} solution sets at {:?}",
         block_addr,
         block.solution_sets.len(),
-        block.timestamp
+        block.header.timestamp
     );
 
     // If the block is empty, notify that we're skipping the block.
@@ -272,10 +277,12 @@ pub async fn build_block_fifo(
     Ok((block_addr, summary))
 }
 
-/// Retrieve the last block number and its timestamp.
+/// Retrieve the header for the last block.
+///
+/// Returns the block number and block timestamp in that order.
 fn last_block_header(
     conn: &rusqlite::Connection,
-) -> Result<Option<(Word, Duration)>, LastBlockHeaderError> {
+) -> Result<Option<BlockHeader>, LastBlockHeaderError> {
     // Retrieve the last block CA.
     let block_ca = match node_db::get_latest_finalized_block_address(conn)? {
         Some(ca) => ca,
@@ -283,10 +290,10 @@ fn last_block_header(
     };
 
     // Retrieve the block's number and timestamp.
-    let (number, timestamp) = node_db::get_block_header(conn, &block_ca)?
+    let header = node_db::get_block_header(conn, &block_ca)?
         .ok_or(LastBlockHeaderError::NoNumberForLastFinalizedBlock)?;
 
-    Ok(Some((number, timestamp)))
+    Ok(Some(header))
 }
 
 /// Check the given sequence of proposed solution sets.

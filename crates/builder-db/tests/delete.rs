@@ -19,7 +19,7 @@ fn delete_oldest_failures() {
     // Create the necessary tables.
     let tx = conn.transaction().unwrap();
     builder_db::create_tables(&tx).unwrap();
-    builder_db::insert_solution_set_submission(&tx, &solution_set, block.timestamp).unwrap();
+    builder_db::insert_solution_set_submission(&tx, &solution_set, block.header.timestamp).unwrap();
     tx.commit().unwrap();
 
     // Insert multiple solution set failures.

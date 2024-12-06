@@ -9,7 +9,11 @@ fn insert_solution_set_submission() {
     // Generate some test solution sets with unique timestamps, some overlapping.
     let solution_sets: Vec<_> = util::test_blocks(100)
         .into_iter()
-        .flat_map(|b| b.solution_sets.into_iter().map(move |s| (s, b.timestamp)))
+        .flat_map(|b| {
+            b.solution_sets
+                .into_iter()
+                .map(move |s| (s, b.header.timestamp))
+        })
         .collect();
 
     // Create an in-memory SQLite database.
