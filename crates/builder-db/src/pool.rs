@@ -6,7 +6,8 @@ use crate::{
     },
     with_tx,
 };
-use essential_types::{solution::Solution, ContentAddress};
+use essential_builder_types::SolutionSetFailure;
+use essential_types::{solution::SolutionSet, ContentAddress};
 use rusqlite_pool::tokio::{AsyncConnectionHandle, AsyncConnectionPool};
 use std::{ops::Range, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::{AcquireError, TryAcquireError};
@@ -117,46 +118,46 @@ impl ConnectionPool {
             .await
     }
 
-    /// Acquire a connection and call [`crate::insert_solution_submission`].
-    pub async fn insert_solution_submission(
+    /// Acquire a connection and call [`crate::insert_solution_set_submission`].
+    pub async fn insert_solution_set_submission(
         &self,
-        solution: Arc<Solution>,
+        solution_set: Arc<SolutionSet>,
         timestamp: Duration,
     ) -> Result<ContentAddress, AcquireThenRusqliteError> {
         self.acquire_then(move |h| {
             with_tx(h, |tx| {
-                crate::insert_solution_submission(tx, &solution, timestamp)
+                crate::insert_solution_set_submission(tx, &solution_set, timestamp)
             })
         })
         .await
     }
 
-    /// Acquire a connection and call [`crate::insert_solution_failure`].
-    pub async fn insert_solution_failure(
+    /// Acquire a connection and call [`crate::insert_solution_set_failure`].
+    pub async fn insert_solution_set_failure(
         &self,
-        solution_ca: ContentAddress,
-        failure: crate::SolutionFailure<'static>,
+        solution_set_ca: ContentAddress,
+        failure: SolutionSetFailure<'static>,
     ) -> Result<(), AcquireThenRusqliteError> {
-        self.acquire_then(move |h| crate::insert_solution_failure(h, &solution_ca, failure))
+        self.acquire_then(move |h| crate::insert_solution_set_failure(h, &solution_set_ca, failure))
             .await
     }
 
-    /// Acquire a connection and call [`crate::get_solution`].
-    pub async fn get_solution(
+    /// Acquire a connection and call [`crate::get_solution_set`].
+    pub async fn get_solution_set(
         &self,
         ca: ContentAddress,
-    ) -> Result<Option<Solution>, AcquireThenQueryError> {
-        self.acquire_then(move |h| crate::get_solution(h, &ca))
+    ) -> Result<Option<SolutionSet>, AcquireThenQueryError> {
+        self.acquire_then(move |h| crate::get_solution_set(h, &ca))
             .await
     }
 
-    /// Acquire a connection and call [`crate::list_solutions`].
-    pub async fn list_solutions(
+    /// Acquire a connection and call [`crate::list_solution_sets`].
+    pub async fn list_solution_sets(
         &self,
         time_range: Range<Duration>,
         limit: i64,
-    ) -> Result<Vec<(ContentAddress, Solution, Duration)>, AcquireThenQueryError> {
-        self.acquire_then(move |h| crate::list_solutions(h, time_range, limit))
+    ) -> Result<Vec<(ContentAddress, SolutionSet, Duration)>, AcquireThenQueryError> {
+        self.acquire_then(move |h| crate::list_solution_sets(h, time_range, limit))
             .await
     }
 
@@ -170,50 +171,50 @@ impl ConnectionPool {
             .await
     }
 
-    /// Acquire a connection and call [`crate::latest_solution_failures`].
-    pub async fn latest_solution_failures(
+    /// Acquire a connection and call [`crate::latest_solution_set_failures`].
+    pub async fn latest_solution_set_failures(
         &self,
-        solution_ca: ContentAddress,
+        solution_set_ca: ContentAddress,
         limit: u32,
-    ) -> Result<Vec<crate::SolutionFailure<'static>>, AcquireThenRusqliteError> {
-        self.acquire_then(move |h| crate::latest_solution_failures(h, &solution_ca, limit))
+    ) -> Result<Vec<SolutionSetFailure<'static>>, AcquireThenRusqliteError> {
+        self.acquire_then(move |h| crate::latest_solution_set_failures(h, &solution_set_ca, limit))
             .await
     }
 
-    /// Acquire a connection and call [`crate::list_solution_failures`].
-    pub async fn list_solution_failures(
+    /// Acquire a connection and call [`crate::list_solution_set_failures`].
+    pub async fn list_solution_set_failures(
         &self,
         offset: u32,
         limit: u32,
-    ) -> Result<Vec<crate::SolutionFailure<'static>>, AcquireThenRusqliteError> {
-        self.acquire_then(move |h| crate::list_solution_failures(h, offset, limit))
+    ) -> Result<Vec<SolutionSetFailure<'static>>, AcquireThenRusqliteError> {
+        self.acquire_then(move |h| crate::list_solution_set_failures(h, offset, limit))
             .await
     }
 
-    /// Acquire a connection and call [`crate::delete_solution`].
-    pub async fn delete_solution(
+    /// Acquire a connection and call [`crate::delete_solution_set`].
+    pub async fn delete_solution_set(
         &self,
         ca: ContentAddress,
     ) -> Result<(), AcquireThenRusqliteError> {
-        self.acquire_then(move |h| crate::delete_solution(h, &ca))
+        self.acquire_then(move |h| crate::delete_solution_set(h, &ca))
             .await
     }
 
-    /// Delete the given set of solutions in a single transaction.
-    pub async fn delete_solutions(
+    /// Delete the given set of solution sets in a single transaction.
+    pub async fn delete_solution_sets(
         &self,
         cas: impl 'static + IntoIterator<Item = ContentAddress> + Send,
     ) -> Result<(), AcquireThenRusqliteError> {
-        self.acquire_then(|h| with_tx(h, |tx| crate::delete_solutions(tx, cas)))
+        self.acquire_then(|h| with_tx(h, |tx| crate::delete_solution_sets(tx, cas)))
             .await
     }
 
-    /// Acquire a connection and call [`crate::delete_oldest_solution_failures`].
-    pub async fn delete_oldest_solution_failures(
+    /// Acquire a connection and call [`crate::delete_oldest_solution_set_failures`].
+    pub async fn delete_oldest_solution_set_failures(
         &self,
         keep_limit: u32,
     ) -> Result<(), AcquireThenRusqliteError> {
-        self.acquire_then(move |h| crate::delete_oldest_solution_failures(h, keep_limit))
+        self.acquire_then(move |h| crate::delete_oldest_solution_set_failures(h, keep_limit))
             .await
     }
 }

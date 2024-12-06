@@ -19,37 +19,40 @@ macro_rules! decl_const_sql_str {
 
 /// Table creation statements.
 pub mod create {
-    decl_const_sql_str!(SOLUTION, "create/solution.sql");
+    decl_const_sql_str!(SOLUTION_SET, "create/solution_set.sql");
     decl_const_sql_str!(SUBMISSION, "create/submission.sql");
-    decl_const_sql_str!(SOLUTION_FAILURE, "create/solution_failure.sql");
+    decl_const_sql_str!(SOLUTION_SET_FAILURE, "create/solution_set_failure.sql");
 }
 
 /// Statements for deleting rows from tables.
 pub mod delete {
-    decl_const_sql_str!(SOLUTION, "delete/solution.sql");
+    decl_const_sql_str!(SOLUTION_SET, "delete/solution_set.sql");
     decl_const_sql_str!(
-        OLDEST_SOLUTION_FAILURES,
-        "delete/oldest_solution_failures.sql"
+        OLDEST_SOLUTION_SET_FAILURES,
+        "delete/oldest_solution_set_failures.sql"
     );
 }
 
 /// Statements for inserting rows into the tables.
 pub mod insert {
-    decl_const_sql_str!(SOLUTION, "insert/solution.sql");
+    decl_const_sql_str!(SOLUTION_SET, "insert/solution_set.sql");
     decl_const_sql_str!(SUBMISSION, "insert/submission.sql");
-    decl_const_sql_str!(SOLUTION_FAILURE, "insert/solution_failure.sql");
+    decl_const_sql_str!(SOLUTION_SET_FAILURE, "insert/solution_set_failure.sql");
 }
 
 /// Statements for making queries.
 pub mod query {
-    decl_const_sql_str!(GET_SOLUTION, "query/get_solution.sql");
-    decl_const_sql_str!(LIST_SOLUTIONS, "query/list_solutions.sql");
+    decl_const_sql_str!(GET_SOLUTION_SET, "query/get_solution_set.sql");
+    decl_const_sql_str!(LIST_SOLUTION_SETS, "query/list_solution_sets.sql");
     decl_const_sql_str!(LIST_SUBMISSIONS, "query/list_submissions.sql");
     decl_const_sql_str!(
-        LATEST_SOLUTION_FAILURES,
-        "query/latest_solution_failures.sql"
+        LATEST_SOLUTION_SET_FAILURES,
+        "query/latest_solution_set_failures.sql"
     );
-    decl_const_sql_str!(LIST_SOLUTION_FAILURES, "query/list_solution_failures.sql");
+    decl_const_sql_str!(
+        LIST_SOLUTION_SET_FAILURES,
+        "query/list_solution_set_failures.sql"
+    );
 }
 
 pub mod table {
@@ -70,10 +73,11 @@ pub mod table {
         }
     }
 
-    pub const SOLUTION: Table = Table::new("solution", create::SOLUTION);
+    pub const SOLUTION_SET: Table = Table::new("solution_set", create::SOLUTION_SET);
     pub const SUBMISSION: Table = Table::new("submission", create::SUBMISSION);
-    pub const SOLUTION_FAILURE: Table = Table::new("solution_failure", create::SOLUTION_FAILURE);
+    pub const SOLUTION_SET_FAILURE: Table =
+        Table::new("solution_set_failure", create::SOLUTION_SET_FAILURE);
 
     /// All tables in a list. Useful for initialisation and testing.
-    pub const ALL: &[Table] = &[SOLUTION, SUBMISSION, SOLUTION_FAILURE];
+    pub const ALL: &[Table] = &[SOLUTION_SET, SUBMISSION, SOLUTION_SET_FAILURE];
 }

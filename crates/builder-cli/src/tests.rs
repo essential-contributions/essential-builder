@@ -20,7 +20,7 @@ async fn test_args() {
 
     // Keep zero failures
     let mut a = args.clone();
-    a.solution_failures_to_keep = 0;
+    a.solution_set_failures_to_keep = 0;
 
     let r = tokio::time::timeout(Duration::from_millis(100), run(a)).await;
     // Error means that the timeout was reached which means that the run

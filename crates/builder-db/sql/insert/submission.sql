@@ -1,9 +1,9 @@
-INSERT INTO submission (solution_id, timestamp_secs, timestamp_nanos)
+INSERT INTO submission (solution_set_id, timestamp_secs, timestamp_nanos)
 VALUES (
     (
         SELECT id
-        FROM solution
-        WHERE content_addr = :solution_addr
+        FROM solution_set
+        WHERE content_addr = :solution_set_addr
         LIMIT 1
     ),
     :timestamp_secs,

@@ -30,27 +30,27 @@ pub struct Args {
     /// L1 block time.
     #[arg(long, default_value_t = DEFAULT_BLOCK_INTERVAL_MS)]
     block_interval_ms: u32,
-    /// The maximum number of solution failures to keep in the DB, used to provide feedback to the
+    /// The maximum number of solution set failures to keep in the DB, used to provide feedback to the
     /// submitters.
-    #[arg(long, default_value_t = builder::Config::DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT)]
-    solution_failures_to_keep: u32,
-    /// The maximum number of solutions to attempt to check and include in a block.
-    #[arg(long, default_value_t = NonZero::new(builder::Config::DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK).expect("declared const must be non-zero"))]
-    solution_attempts_per_block: NonZero<u32>,
-    /// The number of sequential solutions to attempt to check in parallel at a time.
+    #[arg(long, default_value_t = builder::Config::DEFAULT_SOLUTION_SET_FAILURE_KEEP_LIMIT)]
+    solution_set_failures_to_keep: u32,
+    /// The maximum number of solution sets to attempt to check and include in a block.
+    #[arg(long, default_value_t = NonZero::new(builder::Config::DEFAULT_SOLUTION_SET_ATTEMPTS_PER_BLOCK).expect("declared const must be non-zero"))]
+    solution_set_attempts_per_block: NonZero<u32>,
+    /// The number of sequential solution sets to attempt to check in parallel at a time.
     ///
-    /// If greater than `solution-attempts-per-block`, the `solution-attempts-per-block`
+    /// If greater than `solution-set-attempts-per-block`, the `solution-set-attempts-per-block`
     /// is used instead.
     ///
     /// If unspecified, uses `num_cpus::get()`.
     #[arg(long, default_value_t = builder::Config::default_parallel_chunk_size())]
     parallel_chunk_size: NonZero<usize>,
-    /// Whether or not to wait and collect all failures during solution checking after a single
+    /// Whether or not to wait and collect all failures during solution set checking after a single
     /// state read or constraint fails.
     ///
     /// Potentially useful for debugging or testing tools.
     #[arg(long)]
-    solution_check_collects_all_failures: bool,
+    solution_set_check_collects_all_failures: bool,
     /// Specify a path to the `big-bang.yml` configuration.
     ///
     /// This specifies the genesis configuration, which includes items like the contract registry
@@ -198,13 +198,14 @@ fn node_db_conf_from_args(args: &Args) -> anyhow::Result<node::db::pool::Config>
 /// Construct the builder's block-building config from the parsed args.
 fn builder_conf_from_args(args: &Args, big_bang: &BigBang) -> builder::Config {
     builder::Config {
-        solution_failures_to_keep: args.solution_failures_to_keep,
-        solution_attempts_per_block: args.solution_attempts_per_block,
+        solution_set_failures_to_keep: args.solution_set_failures_to_keep,
+        solution_set_attempts_per_block: args.solution_set_attempts_per_block,
         parallel_chunk_size: args.parallel_chunk_size,
         check: std::sync::Arc::new(CheckPredicateConfig {
-            collect_all_failures: args.solution_check_collects_all_failures,
+            collect_all_failures: args.solution_set_check_collects_all_failures,
         }),
         contract_registry: big_bang.contract_registry.clone(),
+        program_registry: big_bang.program_registry.clone(),
         block_state: big_bang.block_state.clone(),
     }
 }
@@ -319,6 +320,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
                     node_db.clone(),
                     node_run_conf,
                     big_bang.contract_registry.contract,
+                    big_bang.program_registry.contract,
                     block_tx,
                 )?
                 .join()

@@ -1,14 +1,14 @@
 SELECT
-    sol.content_addr,
-    sol.solution,
+    sol_set.content_addr,
+    sol_set.solution_set,
     sub.timestamp_secs,
     sub.timestamp_nanos
 FROM
-    solution sol
+    solution_set sol_set
 JOIN
     submission sub
 ON
-    sol.id = sub.solution_id
+    sol_set.id = sub.solution_set_id
 WHERE
     (sub.timestamp_secs > :start_secs OR
     (sub.timestamp_secs = :start_secs AND sub.timestamp_nanos >= :start_nanos))

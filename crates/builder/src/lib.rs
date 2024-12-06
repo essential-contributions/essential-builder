@@ -3,19 +3,19 @@
 //! The primary entrypoint to this crate is the [`build_block_fifo`] function.
 
 use error::{
-    BuildBlockError, CheckSolutionError, CheckSolutionsError, InvalidSolution,
-    LastBlockHeaderError, QueryPredicateError, SolutionPredicatesError,
+    BuildBlockError, CheckSetError, CheckSetsError, InvalidSet, LastBlockHeaderError,
+    PredicateProgramsError, QueryPredicateError, QueryProgramError, SetPredicatesError,
 };
 use essential_builder_db::{self as builder_db};
-use essential_builder_types::SolutionFailure;
-use essential_check::{self as check, solution::CheckPredicateConfig, state_read_vm::Gas};
+use essential_builder_types::SolutionSetFailure;
+use essential_check::{self as check, solution::CheckPredicateConfig, vm::Gas};
 pub use essential_node as node;
 use essential_node_db as node_db;
-use essential_node_types::{block_state_solution, BigBang};
+use essential_node_types::{block_state_solution, BigBang, Block, BlockHeader};
 use essential_types::{
     predicate::Predicate,
-    solution::{Solution, SolutionData},
-    Block, ContentAddress, PredicateAddress, Word,
+    solution::{Solution, SolutionSet},
+    ContentAddress, PredicateAddress, Program, Word,
 };
 use std::{collections::HashMap, num::NonZero, ops::Range, sync::Arc, time::Duration};
 
@@ -25,53 +25,55 @@ pub mod state;
 /// Block building configuration.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Config {
-    /// The maximum number of solution failures to keep in the DB, used to provide feedback to the
+    /// The maximum number of solution set failures to keep in the DB, used to provide feedback to the
     /// submitters.
     ///
-    /// Defaults to [`Config::DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT`].
-    pub solution_failures_to_keep: u32,
-    /// The maximum number of solutions to attempt to check and include in a block.
+    /// Defaults to [`Config::DEFAULT_SOLUTION_SET_FAILURE_KEEP_LIMIT`].
+    pub solution_set_failures_to_keep: u32,
+    /// The maximum number of solution sets to attempt to check and include in a block.
     ///
-    /// Defaults to [`Config::DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK`].
-    pub solution_attempts_per_block: NonZero<u32>,
-    /// The number of sequential solutions to attempt to check in parallel at a time.
+    /// Defaults to [`Config::DEFAULT_SOLUTION_SET_ATTEMPTS_PER_BLOCK`].
+    pub solution_set_attempts_per_block: NonZero<u32>,
+    /// The number of sequential solution sets to attempt to check in parallel at a time.
     ///
-    /// If greater than `solution_attempts_per_block`, the `solution_attempts_per_block`
+    /// If greater than `solution_set_attempts_per_block`, the `solution_set_attempts_per_block`
     /// is used instead.
     ///
     /// If unspecified, uses `num_cpus::get()`.
     pub parallel_chunk_size: NonZero<usize>,
-    /// Configuration required by [`check::solution::check_predicates`].
+    /// Configuration required by [`check::solution::check_set_predicates`].
     ///
     /// Wrapped in an `Arc` as this is shared between tasks.
     pub check: Arc<CheckPredicateConfig>,
     /// The address of the big bang contract registry contract and its predicate.
     pub contract_registry: PredicateAddress,
+    /// The address of the big bang program registry contract and its predicate.
+    pub program_registry: PredicateAddress,
     /// The address of the big bang block state contract and its predicate.
     pub block_state: PredicateAddress,
 }
 
 /// A summary of building a block, returned by [`build_block_fifo`].
 #[derive(Debug)]
-pub struct SolutionsSummary {
-    /// The addresses of all successful solutions.
+pub struct SolutionSetsSummary {
+    /// The addresses of all successful solution sets.
     pub succeeded: Vec<(ContentAddress, Gas)>,
-    /// The addresses of all failed solutions.
-    pub failed: Vec<(ContentAddress, SolutionIndex, InvalidSolution)>,
+    /// The addresses of all failed solution sets.
+    pub failed: Vec<(ContentAddress, SolutionSetIndex, InvalidSet)>,
 }
 
-/// The index of a solution within a block.
-pub type SolutionIndex = u32;
+/// The index of a solution set within a block.
+pub type SolutionSetIndex = u32;
 
 type BlockNum = i64;
 
 impl Config {
-    /// The default number of solution failures that the builder will retain in its DB.
-    pub const DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT: u32 = 10_000;
-    /// The default max number of solutions to attempt to check and include in a block.
-    pub const DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK: u32 = 10_000;
+    /// The default number of solution set failures that the builder will retain in its DB.
+    pub const DEFAULT_SOLUTION_SET_FAILURE_KEEP_LIMIT: u32 = 10_000;
+    /// The default max number of solution sets to attempt to check and include in a block.
+    pub const DEFAULT_SOLUTION_SET_ATTEMPTS_PER_BLOCK: u32 = 10_000;
 
-    /// The default number of sequential solutions to attempt to check in parallel.
+    /// The default number of sequential solution sets to attempt to check in parallel.
     pub fn default_parallel_chunk_size() -> NonZero<usize> {
         num_cpus::get()
             .try_into()
@@ -83,12 +85,13 @@ impl Default for Config {
     fn default() -> Self {
         let big_bang = BigBang::default();
         Self {
-            solution_failures_to_keep: Self::DEFAULT_SOLUTION_FAILURE_KEEP_LIMIT,
-            solution_attempts_per_block: Self::DEFAULT_SOLUTION_ATTEMPTS_PER_BLOCK
+            solution_set_failures_to_keep: Self::DEFAULT_SOLUTION_SET_FAILURE_KEEP_LIMIT,
+            solution_set_attempts_per_block: Self::DEFAULT_SOLUTION_SET_ATTEMPTS_PER_BLOCK
                 .try_into()
                 .expect("declared const must be non-zero"),
             parallel_chunk_size: Self::default_parallel_chunk_size(),
             contract_registry: big_bang.contract_registry,
+            program_registry: big_bang.program_registry,
             block_state: big_bang.block_state,
             check: Default::default(),
         }
@@ -97,16 +100,16 @@ impl Default for Config {
 
 /// Naively build a block in FIFO order.
 ///
-/// Attempts to build a block from the available solutions in the pool in the order in which they
-/// were received. No attempt is made at MEV, and solutions that don't succeed in the immediate
+/// Attempts to build a block from the available solution sets in the pool in the order in which they
+/// were received. No attempt is made at MEV, and solution sets that don't succeed in the immediate
 /// order provided are considered failed.
 ///
-/// All solutions that are attempted (both those that succeed and those that fail) are deleted from
-/// the builder's solution pool. Failed solutions are recorded to the builder's `solution_failure`
-/// table, while the successful solutions can be found in the block.
+/// All solution sets that are attempted (both those that succeed and those that fail) are deleted from
+/// the builder's solution set pool. Failed solution sets are recorded to the builder's `solution_set_failure`
+/// table, while the successful solution sets can be found in the block.
 ///
 /// Returns the address of the block if one was successfully created alongside an in-memory
-/// [`SolutionsSummary`] that describes which solutions succeeded and which ones failed for
+/// [`SetsSummary`] that describes which solution sets succeeded and which ones failed for
 /// convenience.
 ///
 /// # Example
@@ -132,7 +135,7 @@ pub async fn build_block_fifo(
     builder_conn_pool: &builder_db::ConnectionPool,
     node_conn_pool: &node::db::ConnectionPool,
     conf: &Config,
-) -> Result<(Option<ContentAddress>, SolutionsSummary), BuildBlockError> {
+) -> Result<(Option<ContentAddress>, SolutionSetsSummary), BuildBlockError> {
     // Retrieve the last block header.
     let last_block_header_opt = node_conn_pool
         .acquire_then(|h| last_block_header(h))
@@ -146,7 +149,10 @@ pub async fn build_block_fifo(
     // Determine the block number for this block.
     let block_number = match last_block_header_opt {
         None => 0,
-        Some((last_block_num, last_block_ts)) => {
+        Some(BlockHeader {
+            number: last_block_num,
+            timestamp: last_block_ts,
+        }) => {
             let block_num = last_block_num
                 .checked_add(1)
                 .ok_or(BuildBlockError::BlockNumberOutOfRange)?;
@@ -166,48 +172,53 @@ pub async fn build_block_fifo(
         .as_secs()
         .try_into()
         .map_err(|_| BuildBlockError::TimestampOutOfRange)?;
-    let sol_data = block_state_solution(conf.block_state.clone(), block_number, block_secs);
-    let solution = Solution {
-        data: vec![sol_data],
+    let solution = block_state_solution(conf.block_state.clone(), block_number, block_secs);
+    let solution_set = SolutionSet {
+        solutions: vec![solution],
     };
-    let ca = essential_hash::content_addr(&solution);
-    let mut solutions = vec![(ca, Arc::new(solution))];
+    let ca = essential_hash::content_addr(&solution_set);
+    let mut solution_sets = vec![(ca, Arc::new(solution_set))];
 
-    // Read out the oldest solutions.
+    // Read out the oldest solution sets.
     const MAX_TIMESTAMP_RANGE: Range<Duration> =
         Duration::from_secs(0)..Duration::from_secs(i64::MAX as _);
-    let limit = i64::from(u32::from(conf.solution_attempts_per_block));
-    solutions.extend(
+    let limit = i64::from(u32::from(conf.solution_set_attempts_per_block));
+    solution_sets.extend(
         builder_conn_pool
-            .list_solutions(MAX_TIMESTAMP_RANGE, limit)
+            .list_solution_sets(MAX_TIMESTAMP_RANGE, limit)
             .await?
             .into_iter()
-            .map(|(ca, solution, _ts)| (ca, Arc::new(solution))),
+            .map(|(ca, solution_set, _ts)| (ca, Arc::new(solution_set))),
     );
 
-    // Check all solutions.
-    let (solutions, summary) =
-        check_solutions(node_conn_pool.clone(), block_number, &solutions, conf).await?;
+    // Check all solution sets.
+    let (solution_sets, summary) =
+        check_solution_sets(node_conn_pool.clone(), block_number, &solution_sets, conf).await?;
 
     // Construct the block.
     let block = Block {
-        number: block_number,
-        timestamp: block_timestamp,
-        solutions: solutions.into_iter().map(Arc::unwrap_or_clone).collect(),
+        header: BlockHeader {
+            number: block_number,
+            timestamp: block_timestamp,
+        },
+        solution_sets: solution_sets
+            .into_iter()
+            .map(Arc::unwrap_or_clone)
+            .collect(),
     };
     let block_addr = essential_hash::content_addr(&block);
     #[cfg(feature = "tracing")]
     tracing::debug!(
-        "Built block {} with {} solutions at {:?}",
+        "Built block {} with {} solution sets at {:?}",
         block_addr,
-        block.solutions.len(),
-        block.timestamp
+        block.solution_sets.len(),
+        block.header.timestamp
     );
 
     // If the block is empty, notify that we're skipping the block.
-    // FIXME: This uses `<= 1` because the first solution is the block state solution.
+    // FIXME: This uses `<= 1` because the first solution set is the block state solution set.
     // This should be refactored.
-    let skip_block = block.solutions.len() <= 1;
+    let skip_block = block.solution_sets.len() <= 1;
     if skip_block {
         #[cfg(feature = "tracing")]
         tracing::debug!("Skipping empty block {}", block_addr);
@@ -229,23 +240,23 @@ pub async fn build_block_fifo(
         tracing::debug!("Committed and finalized block {}", block_addr);
     }
 
-    // Record solution failures to the DB for submitter feedback.
+    // Record solution set failures to the DB for submitter feedback.
     let failures: Vec<_> = summary
         .failed
         .iter()
-        .map(|(ca, sol_ix, invalid)| {
-            let failure = SolutionFailure {
+        .map(|(ca, set_ix, invalid)| {
+            let failure = SolutionSetFailure {
                 attempt_block_num: block_number,
                 attempt_block_addr: block_addr.clone(),
-                attempt_solution_ix: *sol_ix,
+                attempt_solution_set_ix: *set_ix,
                 err_msg: format!("{invalid}").into(),
             };
             (ca.clone(), failure)
         })
         .collect();
-    let failures_to_keep = conf.solution_failures_to_keep;
+    let failures_to_keep = conf.solution_set_failures_to_keep;
 
-    // Delete all attempted solutions, both those that succeeded and those that failed.
+    // Delete all attempted solution sets, both those that succeeded and those that failed.
     let attempted: Vec<_> = summary
         .succeeded
         .iter()
@@ -256,8 +267,8 @@ pub async fn build_block_fifo(
     builder_conn_pool
         .acquire_then(move |conn| {
             builder_db::with_tx(conn, |tx| {
-                record_solution_failures(tx, failures, failures_to_keep)?;
-                builder_db::delete_solutions(tx, attempted)
+                record_solution_set_failures(tx, failures, failures_to_keep)?;
+                builder_db::delete_solution_sets(tx, attempted)
             })
         })
         .await?;
@@ -266,10 +277,12 @@ pub async fn build_block_fifo(
     Ok((block_addr, summary))
 }
 
-/// Retrieve the last block number and its timestamp.
+/// Retrieve the header for the last block.
+///
+/// Returns the block number and block timestamp in that order.
 fn last_block_header(
     conn: &rusqlite::Connection,
-) -> Result<Option<(Word, Duration)>, LastBlockHeaderError> {
+) -> Result<Option<BlockHeader>, LastBlockHeaderError> {
     // Retrieve the last block CA.
     let block_ca = match node_db::get_latest_finalized_block_address(conn)? {
         Some(ca) => ca,
@@ -277,26 +290,26 @@ fn last_block_header(
     };
 
     // Retrieve the block's number and timestamp.
-    let (number, timestamp) = node_db::get_block_header(conn, &block_ca)?
+    let header = node_db::get_block_header(conn, &block_ca)?
         .ok_or(LastBlockHeaderError::NoNumberForLastFinalizedBlock)?;
 
-    Ok(Some((number, timestamp)))
+    Ok(Some(header))
 }
 
-/// Check the given sequence of proposed solutions.
+/// Check the given sequence of proposed solution sets.
 ///
-/// We optimistically check `conf.parallel_chunk_size` solutions in parallel at a time.
-/// This gives us the benefit of parallel checking, while capping the number of following solutions
-/// that must be re-checked in the case that one of the solutions earlier in the chunk fails to
+/// We optimistically check `conf.parallel_chunk_size` solution sets in parallel at a time.
+/// This gives us the benefit of parallel checking, while capping the number of following solution
+/// sets that must be re-checked in the case that one of the solution sets earlier in the chunk fails to
 /// validate.
-async fn check_solutions(
+async fn check_solution_sets(
     node_conn_pool: node::db::ConnectionPool,
     block_num: BlockNum,
-    proposed_solutions: &[(ContentAddress, Arc<Solution>)],
+    proposed_solution_sets: &[(ContentAddress, Arc<SolutionSet>)],
     conf: &Config,
-) -> Result<(Vec<Arc<Solution>>, SolutionsSummary), CheckSolutionsError> {
+) -> Result<(Vec<Arc<SolutionSet>>, SolutionSetsSummary), CheckSetsError> {
     let chunk_size = conf.parallel_chunk_size.into();
-    let mut solutions = vec![];
+    let mut solution_sets = vec![];
     let mut succeeded = vec![];
     let mut failed = vec![];
     let mut mutations = state::Mutations::default();
@@ -304,32 +317,33 @@ async fn check_solutions(
     // On each pass we process a chunk at a time.
     // If there's a failure, the next chunk starts after the first failure in this chunk.
     let mut chunk_start = 0;
-    while chunk_start < proposed_solutions.len() {
-        // The range of the chunk of solutions to check on this pass.
+    while chunk_start < proposed_solution_sets.len() {
+        // The range of the chunk of solution sets to check on this pass.
         let chunk_end = chunk_start
             .saturating_add(chunk_size)
-            .min(proposed_solutions.len());
+            .min(proposed_solution_sets.len());
         let range = chunk_start..chunk_end;
-        let chunk = &proposed_solutions[range.clone()];
+        let chunk = &proposed_solution_sets[range.clone()];
 
-        // Apply the mutations from this chunk of solutions.
+        // Apply the mutations from this chunk of solution sets.
         mutations.extend(range.clone().zip(chunk.iter().map(|(_, s)| &**s)));
         // Temporarily move mutations behind a share-able `Arc`.
         let mutations_arc = Arc::new(std::mem::take(&mut mutations));
 
         // Check the chunk in parallel.
-        let results = check_solution_chunk(
+        let results = check_solution_set_chunk(
             &node_conn_pool,
             block_num,
             &mutations_arc,
             range.clone().zip(chunk.iter().map(|(_, s)| s.clone())),
             &conf.contract_registry.contract,
+            &conf.program_registry.contract,
             &conf.check,
         )
         .await?;
 
         // Re-take ownership of the mutations.
-        // We know this is unique as `check_solution_chunk` has joined.
+        // We know this is unique as `check_solution_set_chunk` has joined.
         debug_assert_eq!(
             Arc::strong_count(&mutations_arc),
             1,
@@ -338,52 +352,64 @@ async fn check_solutions(
         mutations = Arc::unwrap_or_clone(mutations_arc);
 
         // Process the results.
-        for (sol_ix, (res, (sol_ca, sol))) in range.zip(results.into_iter().zip(chunk)) {
+        for (set_ix, (res, (set_ca, set))) in range.zip(results.into_iter().zip(chunk)) {
             chunk_start += 1;
             match res {
                 Ok(gas) => {
-                    succeeded.push((sol_ca.clone(), gas));
-                    solutions.push(sol.clone());
+                    succeeded.push((set_ca.clone(), gas));
+                    solution_sets.push(set.clone());
                     #[cfg(feature = "tracing")]
-                    tracing::trace!("Solution check success {}", sol_ca);
+                    tracing::trace!("Solution set check success {}", set_ca);
                 }
-                // If a solution was invalid, remove its mutations.
+                // If a solution set was invalid, remove its mutations.
                 Err(invalid) => {
-                    mutations.remove_solution(sol_ix);
-                    let sol_ix: u32 = sol_ix.try_into().expect("`u32::MAX` below solution limit");
-                    failed.push((sol_ca.clone(), sol_ix, invalid));
+                    mutations.remove_solution_set(set_ix);
+                    let set_ix: u32 = set_ix
+                        .try_into()
+                        .expect("`u32::MAX` below solution set limit");
+                    failed.push((set_ca.clone(), set_ix, invalid));
                     #[cfg(feature = "tracing")]
-                    tracing::trace!("Solution check failure {}", sol_ca);
+                    tracing::trace!("Solution set check failure {}", set_ca);
                     break;
                 }
             }
         }
     }
-    let summary = SolutionsSummary { succeeded, failed };
-    Ok((solutions, summary))
+    let summary = SolutionSetsSummary { succeeded, failed };
+    Ok((solution_sets, summary))
 }
 
-/// Check a sequential chunk of solutions in parallel.
-async fn check_solution_chunk(
+/// Check a sequential chunk of solution sets in parallel.
+async fn check_solution_set_chunk(
     node_conn_pool: &node::db::ConnectionPool,
     block_num: BlockNum,
     proposed_mutations: &Arc<state::Mutations>,
-    chunk: impl IntoIterator<Item = (usize, Arc<Solution>)>,
+    chunk: impl IntoIterator<Item = (usize, Arc<SolutionSet>)>,
     contract_registry: &ContentAddress,
+    program_registry: &ContentAddress,
     check_conf: &Arc<check::solution::CheckPredicateConfig>,
-) -> Result<Vec<Result<Gas, InvalidSolution>>, CheckSolutionsError> {
-    // Spawn concurrent checks for each solution.
+) -> Result<Vec<Result<Gas, InvalidSet>>, CheckSetsError> {
+    // Spawn concurrent checks for each solution set.
     let checks: tokio::task::JoinSet<_> = chunk
         .into_iter()
-        .map(move |(sol_ix, solution)| {
+        .map(move |(set_ix, set)| {
             let mutations = proposed_mutations.clone();
             let conn_pool = node_conn_pool.clone();
             let check_conf = check_conf.clone();
-            let registry = contract_registry.clone();
-            let (pre, post) = state::pre_and_post_view(conn_pool, mutations, block_num, sol_ix);
+            let contract_registry = contract_registry.clone();
+            let program_registry = program_registry.clone();
+            let (pre, post) = state::pre_and_post_view(conn_pool, mutations, block_num, set_ix);
             async move {
-                let res = check_solution(solution.clone(), pre, post, &registry, check_conf).await;
-                (sol_ix, res)
+                let res = check_set(
+                    set.clone(),
+                    pre,
+                    post,
+                    &contract_registry,
+                    &program_registry,
+                    check_conf,
+                )
+                .await;
+                (set_ix, res)
             }
         })
         .collect();
@@ -393,65 +419,98 @@ async fn check_solution_chunk(
     results.sort_by_key(|&(ix, _)| ix);
     results
         .into_iter()
-        .map(|(_ix, res)| res.map_err(CheckSolutionsError::CheckSolution))
+        .map(|(_ix, res)| res.map_err(CheckSetsError::CheckSolution))
         .collect()
 }
 
-/// Validate the given solution.
+/// Validate the given solution set.
 ///
-/// If the solution is valid, returns the total gas spent.
-async fn check_solution(
-    solution: Arc<Solution>,
+/// If the solution set is valid, returns the total gas spent.
+async fn check_set(
+    solution_set: Arc<SolutionSet>,
     pre_state: state::View,
     post_state: state::View,
     contract_registry: &ContentAddress,
+    program_registry: &ContentAddress,
     check_conf: Arc<CheckPredicateConfig>,
-) -> Result<Result<Gas, InvalidSolution>, CheckSolutionError> {
-    // Retrieve the predicates that the solution attempts to solve from the post-state. This
-    // ensures that the solution has access to contracts submitted as a part of the solution.
+) -> Result<Result<Gas, InvalidSet>, CheckSetError> {
+    // Retrieve the predicates that the solution set attempts to solve from the post-state. This
+    // ensures that the solution set has access to contracts submitted as a part of the solution
+    // set.
     let predicates =
-        match get_solution_predicates(contract_registry, &post_state, &solution.data).await {
+        match get_solution_set_predicates(contract_registry, &post_state, &solution_set.solutions)
+            .await
+        {
             Ok(predicates) => predicates,
-            Err(SolutionPredicatesError::PredicateDoesNotExist(ca)) => {
-                return Ok(Err(InvalidSolution::PredicateDoesNotExist(ca)));
+            Err(SetPredicatesError::PredicateDoesNotExist(ca)) => {
+                return Ok(Err(InvalidSet::PredicateDoesNotExist(ca)));
             }
-            Err(SolutionPredicatesError::QueryPredicate(err)) => match err {
+            Err(SetPredicatesError::QueryPredicate(err)) => match err {
                 QueryPredicateError::Decode(_)
                 | QueryPredicateError::MissingLenBytes
                 | QueryPredicateError::InvalidLenBytes => {
-                    return Ok(Err(InvalidSolution::PredicateInvalid));
+                    return Ok(Err(InvalidSet::PredicateInvalid));
                 }
                 QueryPredicateError::ConnPoolQuery(err) => {
-                    return Err(CheckSolutionError::NodeQuery(err))
+                    return Err(CheckSetError::NodeQuery(err))
                 }
             },
         };
 
-    // Create the post-state and check the solution's predicates.
-    match check::solution::check_predicates(
+    // Retrieve the programs that the predicates specify from the post-state.
+    let programs = match get_predicates_programs(program_registry, &post_state, &predicates).await {
+        Ok(programs) => programs,
+        Err(PredicateProgramsError::ProgramDoesNotExist(ca)) => {
+            return Ok(Err(InvalidSet::ProgramDoesNotExist(ca)));
+        }
+        Err(PredicateProgramsError::QueryProgram(err)) => match err {
+            QueryProgramError::MissingLenBytes | QueryProgramError::InvalidLenBytes => {
+                return Ok(Err(InvalidSet::ProgramInvalid));
+            }
+            QueryProgramError::ConnPoolQuery(err) => return Err(CheckSetError::NodeQuery(err)),
+        },
+    };
+
+    let get_predicate = move |addr: &PredicateAddress| {
+        predicates
+            .get(&addr.predicate)
+            .cloned()
+            .expect("predicate must have been fetched in the previous step")
+    };
+
+    let get_program = move |addr: &ContentAddress| {
+        programs
+            .get(addr)
+            .cloned()
+            .expect("program must have been fetched in the previous step")
+    };
+
+    // Create the post-state and check the solution set's predicates.
+    match check::solution::check_set_predicates(
         &pre_state,
         &post_state,
-        solution.clone(),
-        |addr: &PredicateAddress| predicates[&addr.predicate].clone(),
+        solution_set.clone(),
+        get_predicate,
+        get_program,
         check_conf.clone(),
     )
     .await
     {
-        Err(err) => Ok(Err(InvalidSolution::Predicates(err))),
+        Err(err) => Ok(Err(InvalidSet::Predicates(err))),
         Ok(gas) => Ok(Ok(gas)),
     }
 }
 
-/// Read and return all predicates required the given solution data.
-async fn get_solution_predicates(
+/// Read and return all predicates required by the given solutions.
+async fn get_solution_set_predicates(
     contract_registry: &ContentAddress,
     view: &state::View,
-    solution_data: &[SolutionData],
-) -> Result<HashMap<ContentAddress, Arc<Predicate>>, SolutionPredicatesError> {
+    solutions: &[Solution],
+) -> Result<HashMap<ContentAddress, Arc<Predicate>>, SetPredicatesError> {
     // Spawn concurrent queries for each predicate.
-    let queries: tokio::task::JoinSet<_> = solution_data
+    let queries: tokio::task::JoinSet<_> = solutions
         .iter()
-        .map(|data| data.predicate_to_solve.clone())
+        .map(|solution| solution.predicate_to_solve.clone())
         .enumerate()
         .map(move |(ix, pred_addr)| {
             let view = view.clone();
@@ -467,20 +526,64 @@ async fn get_solution_predicates(
     let mut map = HashMap::new();
     let mut results = queries.join_all().await;
     results.sort_by_key(|(ix, _)| *ix);
-    for (data, (_ix, res)) in solution_data.iter().zip(results) {
-        let ca = data.predicate_to_solve.predicate.clone();
+    for (sol, (_ix, res)) in solutions.iter().zip(results) {
+        let ca = sol.predicate_to_solve.predicate.clone();
         let predicate =
-            res?.ok_or_else(|| SolutionPredicatesError::PredicateDoesNotExist(ca.clone()))?;
+            res?.ok_or_else(|| SetPredicatesError::PredicateDoesNotExist(ca.clone()))?;
         map.insert(ca, Arc::new(predicate));
     }
 
     Ok(map)
 }
 
-/// Record solution failures to the DB for submitter feedback.
-fn record_solution_failures(
+/// Read and return all programs required by the given predicates.
+async fn get_predicates_programs(
+    program_registry: &ContentAddress,
+    view: &state::View,
+    predicates: &HashMap<ContentAddress, Arc<Predicate>>,
+) -> Result<HashMap<ContentAddress, Arc<Program>>, PredicateProgramsError> {
+    // Spawn concurrent queries for each program.
+    let queries: tokio::task::JoinSet<_> = predicates
+        .iter()
+        .flat_map(|(_, pred)| {
+            pred.nodes
+                .iter()
+                .map(|node| node.program_address.clone())
+                .enumerate()
+                .map(move |(ix, prog_addr)| {
+                    let view = view.clone();
+                    let registry = program_registry.clone();
+                    async move {
+                        let prog = view.get_program(registry, &prog_addr).await;
+                        (ix, prog)
+                    }
+                })
+        })
+        .collect();
+
+    // Collect the results into a map.
+    let mut map = HashMap::new();
+    let mut results = queries.join_all().await;
+    results.sort_by_key(|(ix, _)| *ix);
+
+    for (node, (_ix, res)) in predicates
+        .iter()
+        .flat_map(|(_, pred)| pred.nodes.iter())
+        .zip(results)
+    {
+        let ca = node.program_address.clone();
+        let program =
+            res?.ok_or_else(|| PredicateProgramsError::ProgramDoesNotExist(ca.clone()))?;
+        map.insert(ca, Arc::new(program));
+    }
+
+    Ok(map)
+}
+
+/// Record solution set failures to the DB for submitter feedback.
+fn record_solution_set_failures(
     builder_tx: &mut rusqlite::Transaction,
-    failures: Vec<(ContentAddress, SolutionFailure)>,
+    failures: Vec<(ContentAddress, SolutionSetFailure)>,
     failures_to_keep: u32,
 ) -> rusqlite::Result<()> {
     // Nothing to do if no failures.
@@ -489,7 +592,7 @@ fn record_solution_failures(
     }
     // Acquire a connection, record failures and delete old failures in one transaction.
     for (ca, failure) in failures {
-        builder_db::insert_solution_failure(builder_tx, &ca, failure)?;
+        builder_db::insert_solution_set_failure(builder_tx, &ca, failure)?;
     }
-    builder_db::delete_oldest_solution_failures(builder_tx, failures_to_keep)
+    builder_db::delete_oldest_solution_set_failures(builder_tx, failures_to_keep)
 }

@@ -3,7 +3,7 @@
 pub(crate) use mutations::Mutations;
 pub(crate) use view::{pre_and_post_view, View};
 
-type SolutionIx = usize;
+type SolutionSetIx = usize;
 
 mod mutations;
 mod view;

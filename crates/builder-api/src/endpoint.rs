@@ -6,7 +6,7 @@ use axum::{
     Json,
 };
 use essential_builder_db as db;
-use essential_types::{solution::Solution, ContentAddress};
+use essential_types::{solution::SolutionSet, ContentAddress};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -47,70 +47,70 @@ pub mod health_check {
     pub async fn handler() {}
 }
 
-/// The `/latest_solution_failures` get endpoint.
+/// The `/latest_solution_set_failures` get endpoint.
 ///
-/// Takes a solution content address (encoded as hex) and a `limit` as a path parameter and returns
-/// at most `limit` (or [`latest_solution_failures::MAX_LIMIT`] - whatever's lowest) of
-/// the latest failures for the associated solution.
-pub mod latest_solution_failures {
-    use essential_builder_types::SolutionFailure;
+/// Takes a solution set content address (encoded as hex) and a `limit` as a path parameter and returns
+/// at most `limit` (or [`latest_solution_set_failures::MAX_LIMIT`] - whatever's lowest) of
+/// the latest failures for the associated solution set.
+pub mod latest_solution_set_failures {
+    use essential_builder_types::SolutionSetFailure;
     pub const MAX_LIMIT: u32 = 10;
     use super::*;
-    pub const PATH: &str = "/latest-solution-failures/:solution_ca/:limit";
+    pub const PATH: &str = "/latest-solution-set-failures/:solution_set_ca/:limit";
     pub async fn handler(
         State(state): State<crate::State>,
-        Path((solution_ca, limit)): Path<(String, u32)>,
-    ) -> Result<Json<Vec<SolutionFailure<'static>>>, Error> {
-        let solution_ca: ContentAddress = solution_ca.parse()?;
+        Path((solution_set_ca, limit)): Path<(String, u32)>,
+    ) -> Result<Json<Vec<SolutionSetFailure<'static>>>, Error> {
+        let solution_set_ca: ContentAddress = solution_set_ca.parse()?;
         let limit = limit.min(MAX_LIMIT);
         let failures = state
             .conn_pool
-            .latest_solution_failures(solution_ca, limit)
+            .latest_solution_set_failures(solution_set_ca, limit)
             .await?;
         Ok(Json(failures))
     }
 }
 
-/// The `/list_solution_failures` get endpoint.
+/// The `/list_solution_set_failures` get endpoint.
 ///
 /// Takes a `start` and a `limit` as a path parameter and returns
-/// at most `limit` of the latest failures for all solutions.
+/// at most `limit` of the latest failures for all solution sets.
 /// Note start counts down from the latest failure.
 /// So the latest failure is at `0`.
-pub mod list_solution_failures {
+pub mod list_solution_set_failures {
     use super::*;
-    use essential_builder_types::SolutionFailure;
-    pub const PATH: &str = "/list-solution-failures/:start/:limit";
+    use essential_builder_types::SolutionSetFailure;
+    pub const PATH: &str = "/list-solution-set-failures/:start/:limit";
     pub async fn handler(
         State(state): State<crate::State>,
         Path((offset, limit)): Path<(u32, u32)>,
-    ) -> Result<Json<Vec<SolutionFailure<'static>>>, Error> {
+    ) -> Result<Json<Vec<SolutionSetFailure<'static>>>, Error> {
         let failures = state
             .conn_pool
-            .list_solution_failures(offset, limit)
+            .list_solution_set_failures(offset, limit)
             .await?;
         Ok(Json(failures))
     }
 }
 
-/// The `/submit-solution` get endpoint.
+/// The `/submit-solution-set` get endpoint.
 ///
-/// Takes a JSON-serialized [`Solution`], and responds with its [`ContentAddress`] upon
-/// successfully adding the solution to the solution pool.
-pub mod submit_solution {
+/// Takes a JSON-serialized [`SolutionSet`], and responds with its [`ContentAddress`] upon
+/// successfully adding the solution set to the solution set pool.
+pub mod submit_solution_set {
     use super::*;
-    pub const PATH: &str = "/submit-solution";
+    pub const PATH: &str = "/submit-solution-set";
     pub async fn handler(
         State(state): State<crate::State>,
-        Json(solution): Json<Solution>,
+        Json(solution_set): Json<SolutionSet>,
     ) -> Result<Json<ContentAddress>, Error> {
-        let solution = Arc::new(solution);
+        let solution_set = Arc::new(solution_set);
         let timestamp = now_timestamp()?;
-        let solution_ca = state
+        let solution_set_ca = state
             .conn_pool
-            .insert_solution_submission(solution, timestamp)
+            .insert_solution_set_submission(solution_set, timestamp)
             .await?;
-        Ok(Json(solution_ca))
+        Ok(Json(solution_set_ca))
     }
 }
 

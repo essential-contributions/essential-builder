@@ -20,6 +20,10 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 
+[dev-dependencies]
+essential-check = { workspace = true }
+essential-node-types = { workspace = true }
+
 [features]
 default = ["pool"]
 pool = ["num_cpus", "rusqlite-pool", "rusqlite-pool/tokio", "tokio"]
